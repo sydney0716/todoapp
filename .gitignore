@@ -1,0 +1,61 @@
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+/app/
+local_backups/
+docs/
+
+.gradle/
+.gradle-user-home/
+.ruff_cache/
+.idea/
+android-sdk/
+local.properties
+android/local.properties
+android/key.properties
+android/*.jks
+android/*.keystore
+
+*.iml
+*.log
+.DS_Store
+
+server/.venv/
+server/**/__pycache__/
+server/.pytest_cache/
+server/.env
+
+# --- Additional Public Repo Ignores ---
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+
+# iOS & macOS Flutter artifacts
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.framework/
+ios/Flutter/Flutter.podspec
+ios/Flutter/ephemeral/
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+macos/Pods/
+macos/Flutter/ephemeral/
+macos/Flutter/Generated.xcconfig
+macos/Flutter/flutter_export_environment.sh
+
+# Xcode user data
+xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+
+# Python Extras
+*.py[cod]
+*$py.class
+
+# IDEs
+.vscode/

@@ -1,0 +1,67 @@
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:?set POSTGRES_USER in server/.env}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in server/.env}@postgres:5432/${POSTGRES_DB:?set POSTGRES_DB in server/.env}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in server/.env}
+      ACCESS_TOKEN_MINUTES: ${ACCESS_TOKEN_MINUTES:-15}
+      REFRESH_TOKEN_DAYS: ${REFRESH_TOKEN_DAYS:-60}
+      AUTO_MIGRATE: ${AUTO_MIGRATE:-true}
+      USER_PASSWORD: ${USER_PASSWORD:?set USER_PASSWORD in server/.env}
+      PARTNER_PASSWORD: ${PARTNER_PASSWORD:?set PARTNER_PASSWORD in server/.env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "8000"
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).read()\"",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in server/.env}
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in server/.env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in server/.env}
+    volumes:
+      - personaltodo_pgdata:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  caddy:
+    image: caddy:2.8-alpine
+    environment:
+      PERSONAL_TODO_DOMAIN: ${PERSONAL_TODO_DOMAIN:?set PERSONAL_TODO_DOMAIN in server/.env}
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+
+volumes:
+  personaltodo_pgdata:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widgetTaskRow"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:gravity="center_vertical"
+    android:minHeight="@dimen/todo_widget_task_min_height"
+    android:orientation="horizontal">
+
+    <ImageView
+        android:id="@+id/widgetTaskCheckbox"
+        android:layout_width="@dimen/todo_widget_task_checkbox_size"
+        android:layout_height="@dimen/todo_widget_task_checkbox_size"
+        android:contentDescription="@string/todo_home_widget_task_checkbox"
+        android:src="@drawable/todo_home_widget_checkbox_unchecked" />
+
+    <TextView
+        android:id="@+id/widgetTaskTitle"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="@dimen/todo_widget_task_gap"
+        android:layout_weight="1"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:textColor="#2D2A26"
+        android:textSize="@dimen/todo_widget_task_text_size"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/widgetTaskDueDate"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="@dimen/todo_widget_task_gap"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:textColor="#8B5E34"
+        android:textSize="@dimen/todo_widget_due_text_size" />
+</LinearLayout>

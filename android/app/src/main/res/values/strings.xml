@@ -1,0 +1,11 @@
+<resources>
+    <string name="app_name">Todo App</string>
+    <string name="todo_home_widget_name">Todo App</string>
+    <string name="todo_home_widget_description">Shows your open task list.</string>
+    <string name="todo_home_widget_tasks">Tasks</string>
+    <string name="todo_home_widget_add_task">Add task</string>
+    <string name="todo_home_widget_add_task_symbol">+</string>
+    <string name="todo_home_widget_no_tasks">No open tasks</string>
+    <string name="todo_home_widget_task_checkbox">Task checkbox</string>
+    <string name="todo_home_widget_subtask_checkbox">Subtask checkbox</string>
+</resources>

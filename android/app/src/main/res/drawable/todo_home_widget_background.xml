@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:bottom="8dp"
+        android:left="8dp"
+        android:right="8dp"
+        android:top="8dp">
+        <shape>
+            <solid android:color="#F6EAD8" />
+            <corners android:radius="18dp" />
+        </shape>
+    </item>
+    <item
+        android:bottom="8dp"
+        android:left="8dp"
+        android:right="8dp"
+        android:top="8dp">
+        <bitmap
+            android:alpha="136"
+            android:src="@drawable/paper_background_v2"
+            android:tileMode="repeat" />
+    </item>
+</layer-list>

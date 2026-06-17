@@ -1,0 +1,26 @@
+# This file tracks properties of this Flutter project.
+# Used by Flutter tool upgrades.
+
+version:
+  revision: "manual-migration"
+  channel: "stable"
+
+project_type: app
+
+migration:
+  platforms:
+    - platform: root
+      create_revision: manual-migration
+      base_revision: manual-migration
+    - platform: android
+      create_revision: manual-migration
+      base_revision: manual-migration
+    - platform: ios
+      create_revision: manual-migration
+      base_revision: manual-migration
+    - platform: macos
+      create_revision: manual-migration
+      base_revision: manual-migration
+
+  unmanaged_files:
+    - "lib/main.dart"

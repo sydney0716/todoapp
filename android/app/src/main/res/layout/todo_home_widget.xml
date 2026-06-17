@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widgetOuterRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <LinearLayout
+        android:id="@+id/widgetRoot"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@drawable/todo_home_widget_background"
+        android:gravity="top"
+        android:orientation="vertical"
+        android:padding="@dimen/todo_widget_inner_padding">
+
+        <LinearLayout
+            android:id="@+id/widgetHeaderRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/widgetHeaderTitle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:text="@string/todo_home_widget_tasks"
+                android:textColor="#2D2A26"
+                android:textSize="@dimen/todo_widget_header_text_size"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/widgetAddTaskButton"
+                android:layout_width="@dimen/todo_widget_add_button_size"
+                android:layout_height="@dimen/todo_widget_add_button_size"
+                android:background="@drawable/todo_home_widget_button_background"
+                android:contentDescription="@string/todo_home_widget_add_task"
+                android:gravity="center"
+                android:text="@string/todo_home_widget_add_task_symbol"
+                android:textAllCaps="false"
+                android:textColor="#FFFCF5"
+                android:textSize="@dimen/todo_widget_add_button_text_size"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <ListView
+            android:id="@+id/widgetTaskList"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="@dimen/todo_widget_list_top_margin"
+            android:layout_weight="1"
+            android:cacheColorHint="@android:color/transparent"
+            android:divider="@null"
+            android:overScrollMode="never"
+            android:scrollbars="none" />
+
+        <TextView
+            android:id="@+id/widgetEmptyText"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="@dimen/todo_widget_list_top_margin"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="2"
+            android:text="@string/todo_home_widget_no_tasks"
+            android:textColor="#2D2A26"
+            android:textSize="13sp"
+            android:visibility="gone" />
+    </LinearLayout>
+</FrameLayout>
