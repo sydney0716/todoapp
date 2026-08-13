@@ -74,17 +74,20 @@ class SyncTaskChange {
     required this.operation,
     required this.record,
     this.changedTaskFields = const [],
+    this.changedSubtaskIds = const [],
   });
 
   final String operation;
   final Map<String, Object?> record;
   final List<String> changedTaskFields;
+  final List<String> changedSubtaskIds;
 
   Map<String, Object?> toJson() {
     return {
       'operation': operation,
       'record': record,
       'changed_task_fields': changedTaskFields,
+      'changed_subtask_ids': changedSubtaskIds,
     };
   }
 }

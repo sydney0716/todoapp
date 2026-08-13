@@ -188,6 +188,7 @@ void main() {
           operation: 'upsert',
           record: remoteTask,
           changedTaskFields: const ['title'],
+          changedSubtaskIds: const ['33333333-3333-4333-8333-333333333333'],
         ),
       ],
     );
@@ -208,6 +209,9 @@ void main() {
     final change = changes.single as Map<String, Object?>;
     expect(change['operation'], 'upsert');
     expect(change['changed_task_fields'], ['title']);
+    expect(change['changed_subtask_ids'], [
+      '33333333-3333-4333-8333-333333333333',
+    ]);
   });
 
   test('pullTaskChanges reads cursor changes', () async {

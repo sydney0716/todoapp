@@ -112,6 +112,28 @@ def test_refresh_keeps_refresh_token_valid_for_device(
     assert second_refresh_response.status_code == 200
 
 
+def test_logout_invalidates_refresh_token_without_deleting_device(
+    client: TestClient,
+    fake_db: FakeSession,
+) -> None:
+    auth = _login(client)
+
+    logout_response = client.post(
+        "/auth/logout",
+        headers={"Authorization": f"Bearer {auth['access_token']}"},
+    )
+
+    assert logout_response.status_code == 204
+    assert DEVICE_ID in fake_db.devices
+
+    refresh_response = client.post(
+        "/auth/refresh",
+        json={"refresh_token": auth["refresh_token"], "device_id": auth["device_id"]},
+    )
+
+    assert refresh_response.status_code == 401
+
+
 def test_authenticated_bootstrap_returns_visible_tasks(
     client: TestClient, fake_db: FakeSession
 ) -> None:
@@ -148,7 +170,9 @@ def test_task_push_then_pull_round_trip(client: TestClient) -> None:
     assert push_payload["cursor"] == "1"
     assert push_payload["rejected"] == []
     assert [record["id"] for record in push_payload["accepted"]] == [str(TASK_ID)]
-    assert push_payload["accepted"][0]["updated_at"] != record["updated_at"]
+    assert _parse_json_datetime(push_payload["accepted"][0]["updated_at"]) == (
+        _parse_json_datetime(record["updated_at"])
+    )
 
     pull_response = client.get(
         "/sync/tasks",
@@ -316,7 +340,7 @@ def test_noop_upsert_is_accepted_without_sync_event(
     assert fake_db.events == []
 
 
-def test_stale_subtask_change_is_accepted_in_server_order(
+def test_stale_subtask_change_keeps_server_subtask(
     client: TestClient, fake_db: FakeSession
 ) -> None:
     auth = _login(client)
@@ -343,7 +367,8 @@ def test_stale_subtask_change_is_accepted_in_server_order(
     assert payload["rejected"] == []
     assert fake_db.tasks[TASK_ID].title == "Accepted title"
     assert fake_db.tasks[TASK_ID].version == 3
-    assert fake_db.subtasks[SUBTASK_ID].title == "Accepted subtask title"
+    assert fake_db.subtasks[SUBTASK_ID].title == "Existing subtask"
+    assert fake_db.subtasks[SUBTASK_ID].version == 2
     assert len(fake_db.events) == 1
 
 
@@ -498,6 +523,46 @@ def test_subtask_change_ignores_stale_parent_fields(
     assert fake_db.subtasks[SUBTASK_ID].is_completed is True
 
 
+def test_parent_only_change_does_not_apply_stale_subtask_snapshot(
+    client: TestClient,
+    fake_db: FakeSession,
+) -> None:
+    auth = _login(client)
+    fake_db.add(_task(title="Server task", version=1))
+    fake_db.add(_subtask(title="Accepted subtask title", version=2))
+
+    record = _task_record(title="Renamed task", version=2)
+    record["updated_at"] = "2026-01-01T12:05:00+00:00"
+    record["subtasks"] = [
+        _subtask_record(title="Stale subtask title", version=1),
+    ]
+
+    response = client.post(
+        "/sync/tasks",
+        headers={"Authorization": f"Bearer {auth['access_token']}"},
+        json={
+            "device_id": auth["device_id"],
+            "changes": [
+                {
+                    "operation": "upsert",
+                    "record": record,
+                    "changed_task_fields": ["title"],
+                    "changed_subtask_ids": [],
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["rejected"] == []
+    assert payload["accepted"][0]["title"] == "Renamed task"
+    assert fake_db.tasks[TASK_ID].title == "Renamed task"
+    assert fake_db.subtasks[SUBTASK_ID].title == "Accepted subtask title"
+    assert fake_db.events[0].changed_task_fields == ["title"]
+    assert fake_db.events[0].changed_subtask_ids == []
+
+
 def test_task_change_after_subtask_change_is_accepted(
     client: TestClient, fake_db: FakeSession
 ) -> None:
@@ -558,8 +623,46 @@ def test_same_version_task_change_is_accepted(
     assert payload["rejected"] == []
     assert payload["accepted"][0]["title"] == "Newer task title"
     assert fake_db.tasks[TASK_ID].title == "Newer task title"
-    assert fake_db.tasks[TASK_ID].version == 3
+    assert fake_db.tasks[TASK_ID].version == 2
     assert fake_db.events[0].changed_task_fields == ["title"]
+
+
+def test_stale_same_field_task_change_is_accepted_without_event(
+    client: TestClient,
+    fake_db: FakeSession,
+) -> None:
+    auth = _login(client)
+    fake_db.add(
+        _task(
+            title="Server canonical title",
+            version=2,
+            updated_at=datetime(2026, 1, 1, 12, 5, tzinfo=UTC),
+        )
+    )
+
+    record = _task_record(title="Older task title", version=2)
+    response = client.post(
+        "/sync/tasks",
+        headers={"Authorization": f"Bearer {auth['access_token']}"},
+        json={
+            "device_id": auth["device_id"],
+            "changes": [
+                {
+                    "operation": "upsert",
+                    "record": record,
+                    "changed_task_fields": ["title"],
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["cursor"] == "0"
+    assert payload["rejected"] == []
+    assert payload["accepted"][0]["title"] == "Server canonical title"
+    assert fake_db.tasks[TASK_ID].title == "Server canonical title"
+    assert fake_db.events == []
 
 
 def test_same_field_concurrent_edits_latest_accepted_is_canonical(
@@ -592,6 +695,7 @@ def test_same_field_concurrent_edits_latest_accepted_is_canonical(
         version=2,
         device_id=OTHER_DEVICE_ID,
     )
+    second_record["updated_at"] = "2026-01-01T12:05:00+00:00"
     second_response = client.post(
         "/sync/tasks",
         headers={"Authorization": f"Bearer {auth_b['access_token']}"},
@@ -610,7 +714,7 @@ def test_same_field_concurrent_edits_latest_accepted_is_canonical(
     assert second_response.status_code == 200
     assert second_response.json()["rejected"] == []
     assert fake_db.tasks[TASK_ID].title == "Second accepted title"
-    assert fake_db.tasks[TASK_ID].version == 3
+    assert fake_db.tasks[TASK_ID].version == 2
     assert len(fake_db.events) == 2
 
 
@@ -721,8 +825,20 @@ def test_purge_deletes_visible_task_even_if_record_device_differs(
     client: TestClient, fake_db: FakeSession
 ) -> None:
     auth = _login(client)
-    fake_db.add(_task(device_id=OTHER_DEVICE_ID))
-    record = _task_record(device_id=OTHER_DEVICE_ID)
+    deleted_at = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+    purge_after = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+    fake_db.add(
+        _task(
+            device_id=OTHER_DEVICE_ID,
+            deleted_at=deleted_at,
+            purge_after=purge_after,
+        )
+    )
+    record = _task_record(
+        device_id=OTHER_DEVICE_ID,
+        deleted_at=deleted_at,
+        purge_after=purge_after,
+    )
 
     response = client.post(
         "/sync/tasks",
@@ -739,6 +855,58 @@ def test_purge_deletes_visible_task_even_if_record_device_differs(
     assert payload["accepted"][0]["id"] == str(TASK_ID)
     assert TASK_ID not in fake_db.tasks
     assert fake_db.events[0].operation.value == "purge"
+
+
+def test_purge_rejects_task_that_is_not_in_trash(
+    client: TestClient,
+    fake_db: FakeSession,
+) -> None:
+    auth = _login(client)
+    fake_db.add(_task())
+    record = _task_record()
+
+    response = client.post(
+        "/sync/tasks",
+        headers={"Authorization": f"Bearer {auth['access_token']}"},
+        json={
+            "device_id": auth["device_id"],
+            "changes": [{"operation": "purge", "record": record}],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["accepted"] == []
+    assert "cannot be purged before trash" in payload["rejected"][0]
+    assert TASK_ID in fake_db.tasks
+    assert fake_db.events == []
+
+
+def test_purge_rejects_trash_before_retention_expires(
+    client: TestClient,
+    fake_db: FakeSession,
+) -> None:
+    auth = _login(client)
+    deleted_at = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+    purge_after = datetime.now(UTC) + timedelta(days=30)
+    fake_db.add(_task(deleted_at=deleted_at, purge_after=purge_after))
+    record = _task_record(deleted_at=deleted_at, purge_after=purge_after)
+
+    response = client.post(
+        "/sync/tasks",
+        headers={"Authorization": f"Bearer {auth['access_token']}"},
+        json={
+            "device_id": auth["device_id"],
+            "changes": [{"operation": "purge", "record": record}],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["accepted"] == []
+    assert "cannot be purged before retention expires" in payload["rejected"][0]
+    assert TASK_ID in fake_db.tasks
+    assert fake_db.events == []
 
 
 def _login(
@@ -764,6 +932,10 @@ def _login(
     return response.json()
 
 
+def _parse_json_datetime(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
 def _task(
     *,
     title: str = "Server task",
@@ -771,6 +943,9 @@ def _task(
     device_id: UUID = DEVICE_ID,
     shared_completion_mode: str = "single",
     completed_by_user_ids: list[UUID] | None = None,
+    updated_at: datetime | None = None,
+    deleted_at: datetime | None = None,
+    purge_after: datetime | None = None,
 ) -> Task:
     now = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
     task = Task(
@@ -790,10 +965,10 @@ def _task(
         reminder_option="none",
         reminder_value=None,
         created_at=now,
-        updated_at=now,
+        updated_at=updated_at or now,
         version=version,
-        deleted_at=None,
-        purge_after=None,
+        deleted_at=deleted_at,
+        purge_after=purge_after,
         device_id=device_id,
     )
     task.subtasks = []
@@ -828,6 +1003,9 @@ def _task_record(
     title: str = "Server task",
     version: int = 1,
     device_id: UUID = DEVICE_ID,
+    updated_at: datetime | None = None,
+    deleted_at: datetime | None = None,
+    purge_after: datetime | None = None,
     visibility: str = "private",
     workspace_id: UUID | None = None,
     is_completed: bool = False,
@@ -852,10 +1030,10 @@ def _task_record(
         "reminder_option": "none",
         "reminder_value": None,
         "created_at": now,
-        "updated_at": now,
+        "updated_at": (updated_at.isoformat() if updated_at is not None else now),
         "version": version,
-        "deleted_at": None,
-        "purge_after": None,
+        "deleted_at": deleted_at.isoformat() if deleted_at is not None else None,
+        "purge_after": purge_after.isoformat() if purge_after is not None else None,
         "created_by_user_id": str(DEFAULT_CURRENT_USER_ID),
         "updated_by_user_id": str(DEFAULT_CURRENT_USER_ID),
         "device_id": str(device_id),

@@ -8,7 +8,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in server/.env}
       ACCESS_TOKEN_MINUTES: ${ACCESS_TOKEN_MINUTES:-15}
       REFRESH_TOKEN_DAYS: ${REFRESH_TOKEN_DAYS:-60}
-      AUTO_MIGRATE: ${AUTO_MIGRATE:-true}
+      AUTO_MIGRATE: ${AUTO_MIGRATE:-false}
       USER1_PASSWORD: ${USER1_PASSWORD:?set USER1_PASSWORD in server/.env}
       USER2_PASSWORD: ${USER2_PASSWORD:?set USER2_PASSWORD in server/.env}
     depends_on:

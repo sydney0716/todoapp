@@ -10,6 +10,9 @@ def apply_runtime_migrations() -> None:
 
     sessionmaker = get_sessionmaker()
     with sessionmaker() as db:
+        if not _required_tables_exist(db):
+            return
+
         db.execute(
             text(
                 """
@@ -118,3 +121,17 @@ def apply_runtime_migrations() -> None:
             )
         )
         db.commit()
+
+
+def _required_tables_exist(db) -> bool:
+    required_tables = ("tasks", "subtasks", "sync_events")
+    for table_name in required_tables:
+        if (
+            db.scalar(
+                text("SELECT to_regclass(:table_name)"),
+                {"table_name": table_name},
+            )
+            is None
+        ):
+            return False
+    return True

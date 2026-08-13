@@ -2,7 +2,7 @@
 
 Use the Oracle VM as the private sync backend for the two Personal Todo accounts. The VM should run only the API, Postgres, HTTPS reverse proxy, and backups. Flutter builds stay on your laptop.
 
-Current server status: `/health`, fixed-account auth, refresh/logout, task bootstrap, task push, and task pull are implemented. Trash settings, trash restore/permanent delete, and habit sync are still deferred.
+Current server status: `/health`, fixed-account auth, refresh/logout, task bootstrap, task push, task pull, task trash restore, and retention-gated permanent delete are implemented. Trash settings and habit sync are still deferred.
 
 ## Target Layout
 
@@ -103,7 +103,7 @@ Never commit `server/.env`.
 From the repo root on the VM:
 
 ```bash
-docker compose --env-file server/.env -f server/deploy/docker-compose.oracle.yml up -d --build
+docker compose --env-file server/.env -f server/deploy/docker-compose.oracle.yml up -d postgres
 ```
 
 Apply the database migrations:
@@ -113,6 +113,15 @@ docker compose --env-file server/.env -f server/deploy/docker-compose.oracle.yml
 docker compose --env-file server/.env -f server/deploy/docker-compose.oracle.yml exec -T postgres sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < server/migrations/002_task_device_id.sql
 docker compose --env-file server/.env -f server/deploy/docker-compose.oracle.yml exec -T postgres sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < server/migrations/003_refresh_token_expiry.sql
 docker compose --env-file server/.env -f server/deploy/docker-compose.oracle.yml exec -T postgres sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < server/migrations/004_sync_event_metadata.sql
+docker compose --env-file server/.env -f server/deploy/docker-compose.oracle.yml exec -T postgres sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < server/migrations/005_shared_completion.sql
+docker compose --env-file server/.env -f server/deploy/docker-compose.oracle.yml exec -T postgres sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < server/migrations/005_subtask_due_at.sql
+docker compose --env-file server/.env -f server/deploy/docker-compose.oracle.yml exec -T postgres sh -lc 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' < server/migrations/006_sync_event_shared_visibility.sql
+```
+
+Then start the full stack:
+
+```bash
+docker compose --env-file server/.env -f server/deploy/docker-compose.oracle.yml up -d --build
 ```
 
 Check health:

@@ -335,7 +335,15 @@ def _apply_task_change(
         if task is not None:
             if task.owner_user_id != current_user.user_id:
                 raise ValueError(f"Task {record.id} cannot be purged by this user")
+            if task.deleted_at is None:
+                raise ValueError(f"Task {record.id} cannot be purged before trash")
+            if task.purge_after is None or task.purge_after > accepted_at:
+                raise ValueError(
+                    f"Task {record.id} cannot be purged before retention expires"
+                )
+            deleted_record = _task_to_record(task, subtasks=_task_subtasks(db, task))
             db.delete(task)
+            return deleted_record, [], []
         return record, [], []
 
     deleted_at = record.deleted_at
@@ -346,17 +354,12 @@ def _apply_task_change(
         requested_fields=change.changed_task_fields,
     )
     changed_task_field_set = set(changed_task_fields)
-    changed_subtask_ids = [subtask.id for subtask in record.subtasks]
+    changed_subtask_ids = _normalized_changed_subtask_ids(existing, change)
     task = existing
     if task is None:
         task = Task(sync_id=record.id)
         db.add(task)
-    task_fields_changed = existing is None or _task_fields_changed(
-        existing,
-        record,
-        deleted_at=deleted_at,
-        changed_fields=changed_task_field_set,
-    )
+    task_fields_changed = existing is None or bool(changed_task_field_set)
     if existing is None or task_fields_changed:
         server_deleted_at = _server_deleted_at(record, deleted_at, accepted_at)
         _apply_task_fields(
@@ -374,7 +377,11 @@ def _apply_task_change(
             select(Subtask).where(Subtask.task_sync_id == record.id)
         )
     }
+    changed_subtask_id_set = set(changed_subtask_ids)
+    applied_subtask_ids: list[UUID] = []
     for subtask_record in record.subtasks:
+        if subtask_record.id not in changed_subtask_id_set:
+            continue
         subtask = existing_subtasks.get(subtask_record.id)
         if subtask is None:
             subtask = Subtask(
@@ -383,7 +390,7 @@ def _apply_task_change(
                 created_at=accepted_at,
             )
             db.add(subtask)
-        elif not _subtask_fields_changed(subtask, subtask_record):
+        elif not _incoming_subtask_wins(subtask, subtask_record):
             continue
 
         subtask.task_sync_id = record.id
@@ -391,18 +398,19 @@ def _apply_task_change(
         subtask.is_completed = subtask_record.is_completed
         subtask.due_at = subtask_record.due_at
         subtask.position = subtask_record.position
-        subtask.updated_at = accepted_at
-        subtask.version = 1 if subtask.version is None else subtask.version + 1
+        subtask.updated_at = subtask_record.updated_at
+        subtask.version = subtask_record.version
         subtask.deleted_at = (
             accepted_at if subtask_record.deleted_at is not None else None
         )
         subtask.server_updated_at = accepted_at
+        applied_subtask_ids.append(subtask_record.id)
 
     db.flush()
     return (
         _task_to_record(task, subtasks=_task_subtasks(db, task)),
         changed_task_fields,
-        changed_subtask_ids,
+        applied_subtask_ids,
     )
 
 
@@ -416,13 +424,45 @@ def _normalized_changed_task_fields(
     if existing is None:
         return list(_TASK_FIELD_NAMES)
     if requested_fields is not None:
-        return [field for field in requested_fields if field in _TASK_FIELD_NAMES]
+        changed_fields = [
+            field for field in requested_fields if field in _TASK_FIELD_NAMES
+        ]
+        return changed_fields if _incoming_task_wins(existing, record) else []
 
     changed_fields: list[str] = []
     for field_name in _TASK_FIELD_NAMES:
         if _task_field_changed(existing, record, field_name, deleted_at=deleted_at):
             changed_fields.append(field_name)
-    return changed_fields
+    return changed_fields if _incoming_task_wins(existing, record) else []
+
+
+def _normalized_changed_subtask_ids(
+    existing: Task | None,
+    change: TaskChange,
+) -> list[UUID]:
+    if existing is None:
+        return [subtask.id for subtask in change.record.subtasks]
+    if change.changed_subtask_ids is not None:
+        return list(change.changed_subtask_ids)
+    return [subtask.id for subtask in change.record.subtasks]
+
+
+def _incoming_task_wins(existing: Task, record: TaskRecord) -> bool:
+    if record.version > existing.version:
+        return True
+    return (
+        record.version == existing.version
+        and record.updated_at > existing.updated_at
+    )
+
+
+def _incoming_subtask_wins(existing: Subtask, record: SubtaskRecord) -> bool:
+    if record.version > existing.version:
+        return True
+    return (
+        record.version == existing.version
+        and record.updated_at > existing.updated_at
+    )
 
 
 def _task_field_changed(
@@ -505,8 +545,8 @@ def _apply_task_fields(
         task.deleted_at = server_deleted_at
         task.purge_after = _server_purge_after(record, server_deleted_at)
     task.updated_by_user_id = record.updated_by_user_id
-    task.updated_at = accepted_at
-    task.version = 1 if is_new else task.version + 1
+    task.updated_at = record.updated_at
+    task.version = record.version
     task.device_id = record.device_id
     task.server_updated_at = accepted_at
 
@@ -516,83 +556,6 @@ def _should_apply_task_field(
     field_name: str,
 ) -> bool:
     return changed_fields is None or field_name in changed_fields
-
-
-def _task_fields_changed(
-    task: Task,
-    record: TaskRecord,
-    *,
-    deleted_at: datetime | None,
-    changed_fields: set[str] | None,
-) -> bool:
-    return (
-        (
-            _should_apply_task_field(changed_fields, "owner_user_id")
-            and task.owner_user_id != record.owner_user_id
-        )
-        or (
-            _should_apply_task_field(changed_fields, "visibility")
-            and task.visibility != DbVisibility(record.visibility.value)
-        )
-        or (
-            _should_apply_task_field(changed_fields, "workspace_id")
-            and task.workspace_id != record.workspace_id
-        )
-        or (
-            _should_apply_task_field(changed_fields, "created_by_user_id")
-            and task.created_by_user_id != record.created_by_user_id
-        )
-        or (
-            _should_apply_task_field(changed_fields, "title")
-            and task.title != record.title
-        )
-        or (
-            _should_apply_task_field(changed_fields, "note")
-            and task.note != record.note
-        )
-        or (
-            _should_apply_task_field(changed_fields, "category")
-            and task.category != record.category
-        )
-        or (
-            _should_apply_task_field(changed_fields, "is_completed")
-            and task.is_completed != record.is_completed
-        )
-        or (
-            _should_apply_task_field(changed_fields, "shared_completion_mode")
-            and task.shared_completion_mode != record.shared_completion_mode.value
-        )
-        or (
-            _should_apply_task_field(changed_fields, "completed_by_user_ids")
-            and _completed_by_user_ids(task) != _record_completed_by_user_ids(record)
-        )
-        or (
-            _should_apply_task_field(changed_fields, "due_at")
-            and task.due_at != record.due_at
-        )
-        or (
-            _should_apply_task_field(changed_fields, "reminder_option")
-            and task.reminder_option != record.reminder_option
-        )
-        or (
-            _should_apply_task_field(changed_fields, "reminder_value")
-            and task.reminder_value != record.reminder_value
-        )
-        or (
-            _should_apply_task_field(changed_fields, "deleted_at")
-            and (task.deleted_at is None) != (deleted_at is None)
-        )
-    )
-
-
-def _subtask_fields_changed(subtask: Subtask, record: SubtaskRecord) -> bool:
-    return (
-        subtask.title != record.title
-        or subtask.is_completed != record.is_completed
-        or subtask.due_at != record.due_at
-        or subtask.position != record.position
-        or (subtask.deleted_at is None) != (record.deleted_at is None)
-    )
 
 
 def _completed_by_user_ids(task: Task) -> list[str]:

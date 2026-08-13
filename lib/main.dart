@@ -101,8 +101,16 @@ class _PersonalTodoAppState extends State<PersonalTodoApp> {
   }
 
   void _syncCurrentUser() {
-    widget.repository.currentUserId = widget.settings.currentUserId;
-    if (_nativeWidgetStartupComplete) {
+    final nextUserId = widget.settings.currentUserId;
+    final didChangeUser = widget.repository.currentUserId != nextUserId;
+    widget.repository.currentUserId = nextUserId;
+    if (didChangeUser) {
+      unawaited(
+        widget.repository.reload(
+          refreshNativeWidget: _nativeWidgetStartupComplete,
+        ),
+      );
+    } else if (_nativeWidgetStartupComplete) {
       unawaited(NativeWidgetBridge.refreshHomeWidget(
         tasks: widget.repository.tasks,
         languageCode: widget.settings.language.languageCode,

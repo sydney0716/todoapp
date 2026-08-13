@@ -5,7 +5,9 @@
 build/
 /app/
 local_backups/
-docs/
+docs/*
+!docs/pm/
+!docs/pm/*.md
 
 .gradle/
 .gradle-user-home/

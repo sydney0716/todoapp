@@ -89,6 +89,7 @@ class TodoSyncService {
               operation: item.operation,
               record: record,
               changedTaskFields: changedTaskFields,
+              changedSubtaskIds: changedSubtaskSyncIds,
             ),
             changedTaskFields: changedTaskFields,
             changedSubtaskSyncIds: changedSubtaskSyncIds,

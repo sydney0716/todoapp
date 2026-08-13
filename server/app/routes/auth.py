@@ -61,6 +61,11 @@ def login(
             )
         )
     else:
+        if device.user_id != user.id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Device is already registered to another account",
+            )
         device.user_id = user.id
         device.device_name = payload.device_name
         device.platform = payload.platform
@@ -126,5 +131,7 @@ def logout(
         return
     device = db.get(Device, current_user.device_id)
     if device is not None:
-        db.delete(device)
+        device.refresh_token_hash = hash_token(create_refresh_token())
+        device.refresh_token_expires_at = datetime.now(UTC)
+        device.last_seen_at = datetime.now(UTC)
         db.commit()

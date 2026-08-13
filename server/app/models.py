@@ -22,12 +22,12 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .database import Base
 
 
-class Visibility(str, enum.Enum):
+class Visibility(enum.StrEnum):
     private = "private"
     shared = "shared"
 
 
-class SyncOperation(str, enum.Enum):
+class SyncOperation(enum.StrEnum):
     upsert = "upsert"
     delete = "delete"
     purge = "purge"

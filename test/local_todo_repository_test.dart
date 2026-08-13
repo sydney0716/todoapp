@@ -7,8 +7,6 @@ import 'package:personaltodo/local_todo_repository.dart';
 import 'package:personaltodo/models.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-
-
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -189,10 +187,24 @@ void main() {
     expect(repository.trashTasks.single.syncStatus, SyncStatus.synced);
     expect(
       repository.canPermanentlyDeleteTask(repository.trashTasks.single),
+      isFalse,
+    );
+    expect(
+      repository.canPermanentlyDeleteTask(
+        repository.trashTasks.single,
+        now: repository.trashTasks.single.purgeAfter!.add(
+          const Duration(milliseconds: 1),
+        ),
+      ),
       isTrue,
     );
     expect(
-      await repository.permanentlyDeleteTask(repository.trashTasks.single),
+      await repository.permanentlyDeleteTask(
+        repository.trashTasks.single,
+        now: repository.trashTasks.single.purgeAfter!.add(
+          const Duration(milliseconds: 1),
+        ),
+      ),
       isTrue,
     );
 
@@ -266,6 +278,50 @@ void main() {
       partnerUserId,
     ]);
     expect(payload['is_completed'], isTrue);
+  });
+
+  test('filters private tasks by active local user', () async {
+    final tempDir =
+        await Directory.systemTemp.createTemp('personaltodo_owner_filter_');
+    final repository = LocalTodoRepository(
+      databasePath: path.join(tempDir.path, 'personal_todo.db'),
+    );
+
+    await repository.init();
+    addTearDown(() async {
+      await repository.close();
+      await tempDir.delete(recursive: true);
+    });
+
+    await repository.reconcileBootstrapTasks([
+      _remoteTask(
+        syncId: '11111111-1111-4111-8111-111111111111',
+        ownerUserId: defaultCurrentUserId,
+        title: 'Mine',
+      ),
+      _remoteTask(
+        syncId: '22222222-2222-4222-8222-222222222222',
+        ownerUserId: partnerUserId,
+        title: 'Partner private',
+      ),
+      _remoteTask(
+        syncId: '33333333-3333-4333-8333-333333333333',
+        ownerUserId: partnerUserId,
+        title: 'Shared',
+        visibility: SyncVisibility.shared,
+        workspaceId: defaultSharedWorkspaceId,
+      ),
+    ]);
+
+    expect(repository.tasks.map((task) => task.title), ['Mine', 'Shared']);
+
+    repository.currentUserId = partnerUserId;
+    await repository.reload();
+
+    expect(
+      repository.tasks.map((task) => task.title),
+      ['Partner private', 'Shared'],
+    );
   });
 
   test('shared both completion can be toggled back by same user', () async {
@@ -626,7 +682,6 @@ void main() {
     expect(payload['_changed_task_fields'], ['note']);
   });
 
-
   test('incremental pull matches tasks only by syncId, not title', () async {
     final tempDir =
         await Directory.systemTemp.createTemp('personaltodo_identity_sync_');
@@ -757,6 +812,34 @@ void main() {
     expect(repository.tasks.single.subTasks, isEmpty);
   });
 
+  test('reconcile snapshot preserves pending local task changes', () async {
+    final tempDir =
+        await Directory.systemTemp.createTemp('personaltodo_pending_snapshot_');
+    final repository = LocalTodoRepository(
+      databasePath: path.join(tempDir.path, 'personal_todo.db'),
+    );
+
+    await repository.init();
+    addTearDown(() async {
+      await repository.close();
+      await tempDir.delete(recursive: true);
+    });
+
+    await repository.upsertTask(TodoTask(title: 'Synced task'));
+    var queue = await repository.getPendingSyncQueue();
+    await repository.markSyncQueueItemSucceeded(queue.single.id);
+
+    await repository.upsertTask(
+      repository.tasks.single.copyWith(title: 'Pending local title'),
+    );
+
+    await repository.reconcileBootstrapTasks([]);
+
+    expect(repository.tasks.single.title, 'Pending local title');
+    expect(repository.tasks.single.syncStatus, SyncStatus.pending);
+    expect(await _syncQueueCount(repository), 1);
+  });
+
   test('opens an existing Room v3 database without duplicating starter content',
       () async {
     final tempDir =
@@ -834,6 +917,29 @@ void main() {
 
 Future<int> _syncQueueCount(LocalTodoRepository repository) async {
   return (await repository.getPendingSyncSummary()).pendingCount;
+}
+
+TodoTask _remoteTask({
+  required String syncId,
+  required String ownerUserId,
+  required String title,
+  SyncVisibility visibility = SyncVisibility.privateItem,
+  String? workspaceId,
+}) {
+  return TodoTask(
+    syncId: syncId,
+    ownerUserId: ownerUserId,
+    visibility: visibility,
+    workspaceId: workspaceId,
+    createdByUserId: ownerUserId,
+    updatedByUserId: ownerUserId,
+    title: title,
+    createdAt: DateTime.utc(2026, 6, 5),
+    updatedAt: DateTime.utc(2026, 6, 5, 1),
+    version: 1,
+    syncStatus: SyncStatus.synced,
+    deviceId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  );
 }
 
 Future<void> _createRoomV3Schema(DatabaseExecutor database) async {

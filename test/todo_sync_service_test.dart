@@ -532,6 +532,10 @@ void main() {
       (changes.single as Map<String, Object?>)['changed_task_fields'],
       isEmpty,
     );
+    expect(
+      (changes.single as Map<String, Object?>)['changed_subtask_ids'],
+      [repository.tasks.single.subTasks.first.syncId],
+    );
   });
 
   test('syncNow clears accepted no-op task queue rows', () async {
@@ -929,7 +933,13 @@ void main() {
     await repository.markSyncQueueItemSucceeded(queue.single.id);
 
     final deletedTask = repository.trashTasks.single;
-    expect(await repository.permanentlyDeleteTask(deletedTask), isTrue);
+    expect(
+      await repository.permanentlyDeleteTask(
+        deletedTask,
+        now: deletedTask.purgeAfter!.add(const Duration(milliseconds: 1)),
+      ),
+      isTrue,
+    );
     queue = await repository.getPendingSyncQueue();
     expect(queue.single.operation, 'purge');
     final record =

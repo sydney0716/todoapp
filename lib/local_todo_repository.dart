@@ -14,6 +14,22 @@ const _syncMetadataBackfilledKey = 'sync_metadata_backfilled';
 const _initialSyncRetryDelay = Duration(minutes: 5);
 const _maxSyncRetryDelay = Duration(hours: 1);
 const _trashPurgeDelay = Duration(days: 30);
+const _allTaskSyncFieldNames = {
+  'owner_user_id',
+  'visibility',
+  'workspace_id',
+  'created_by_user_id',
+  'title',
+  'note',
+  'category',
+  'is_completed',
+  'shared_completion_mode',
+  'completed_by_user_ids',
+  'due_at',
+  'reminder_option',
+  'reminder_value',
+  'deleted_at',
+};
 
 class LocalTodoRepository extends ChangeNotifier {
   static const databaseName = 'personal_todo.db';
@@ -238,8 +254,6 @@ class LocalTodoRepository extends ChangeNotifier {
     return tasks.length;
   }
 
-
-
   Future<bool> _purgeSyncedTaskBySyncId(
     DatabaseExecutor db,
     String syncId,
@@ -254,14 +268,20 @@ class LocalTodoRepository extends ChangeNotifier {
     return await _deleteTaskRows(db, rows) > 0;
   }
 
-
   Future<int> _removeSyncedTasksAbsentFromSnapshot(
     DatabaseExecutor db,
     Set<String> remoteSyncIds,
   ) async {
     final whereArgs = <Object?>[];
     var where =
-        "lastSyncedAt IS NOT NULL AND syncId IS NOT NULL AND syncId != ''";
+        "lastSyncedAt IS NOT NULL AND syncId IS NOT NULL AND syncId != '' "
+        'AND syncStatus = ? '
+        'AND NOT EXISTS ('
+        'SELECT 1 FROM sync_queue '
+        "WHERE sync_queue.entityType = 'task' "
+        'AND sync_queue.entitySyncId = tasks.syncId'
+        ')';
+    whereArgs.add(SyncStatus.synced.storedValue);
     if (remoteSyncIds.isNotEmpty) {
       where +=
           ' AND syncId NOT IN (${List.filled(remoteSyncIds.length, '?').join(', ')})';
@@ -574,7 +594,7 @@ class LocalTodoRepository extends ChangeNotifier {
         entitySyncId: deletedTask.syncId,
         operation: 'delete',
         payloadJson: _encodeTaskPayload(
-          deletedTask,
+          deletedTask.copyWith(subTasks: const []),
           changedTaskFields: const {'deleted_at'},
         ),
         createdAt: now,
@@ -610,7 +630,7 @@ class LocalTodoRepository extends ChangeNotifier {
         entitySyncId: restoredTask.syncId,
         operation: 'upsert',
         payloadJson: _encodeTaskPayload(
-          restoredTask,
+          restoredTask.copyWith(subTasks: const []),
           changedTaskFields: const {'deleted_at'},
         ),
         createdAt: now,
@@ -619,17 +639,23 @@ class LocalTodoRepository extends ChangeNotifier {
     await reload();
   }
 
-  bool canPermanentlyDeleteTask(TodoTask task) {
-    return task.deletedAt != null && task.syncStatus == SyncStatus.synced;
+  bool canPermanentlyDeleteTask(TodoTask task, {DateTime? now}) {
+    final purgeAfter = task.purgeAfter;
+    return task.deletedAt != null &&
+        task.syncStatus == SyncStatus.synced &&
+        purgeAfter != null &&
+        !purgeAfter.isAfter(now ?? DateTime.now());
   }
 
   Future<bool> permanentlyDeleteTask(
     TodoTask task, {
+    DateTime? now,
     bool refreshNativeWidget = true,
   }) async {
-    if (!canPermanentlyDeleteTask(task)) return false;
+    final checkedAt = now ?? DateTime.now();
+    if (!canPermanentlyDeleteTask(task, now: checkedAt)) return false;
 
-    final now = DateTime.now();
+    final queuedAt = DateTime.now();
     await _database.transaction((transaction) async {
       await _enqueueSync(
         transaction,
@@ -637,7 +663,7 @@ class LocalTodoRepository extends ChangeNotifier {
         entitySyncId: task.syncId,
         operation: 'purge',
         payloadJson: _encodeTaskPayload(task),
-        createdAt: now,
+        createdAt: queuedAt,
       );
       await transaction.delete('tasks', where: 'id = ?', whereArgs: [task.id]);
     });
@@ -706,27 +732,39 @@ class LocalTodoRepository extends ChangeNotifier {
     for (final task in expiredTasks) {
       await permanentlyDeleteTask(
         task,
+        now: cutoff,
         refreshNativeWidget: refreshNativeWidget,
       );
     }
   }
 
   Future<List<TodoTask>> _readTasks() async {
+    final visibleTasks = _visibleTaskWhere('deletedAt IS NULL');
     return _readTaskRows(
-      where: 'deletedAt IS NULL',
+      where: visibleTasks.where,
+      whereArgs: visibleTasks.args,
       subTaskWhere: 'deletedAt IS NULL',
     );
   }
 
   Future<List<TodoTask>> _readTrashTasks() async {
-    return _readTaskRows(where: 'deletedAt IS NOT NULL');
+    final visibleTasks = _visibleTaskWhere('deletedAt IS NOT NULL');
+    return _readTaskRows(
+      where: visibleTasks.where,
+      whereArgs: visibleTasks.args,
+    );
   }
 
   Future<List<TodoTask>> _readTaskRows({
     String? where,
+    List<Object?> whereArgs = const [],
     String? subTaskWhere,
   }) async {
-    final taskRows = await _database.query('tasks', where: where);
+    final taskRows = await _database.query(
+      'tasks',
+      where: where,
+      whereArgs: whereArgs.isEmpty ? null : whereArgs,
+    );
     if (taskRows.isEmpty) return const [];
 
     final taskIds = taskRows.map((row) => row['id'] as int).toList();
@@ -753,6 +791,13 @@ class LocalTodoRepository extends ChangeNotifier {
       subTasks.sort((a, b) => a.createdAt.compareTo(b.createdAt));
       return _taskFromMap(row, subTasks);
     }).toList(growable: false);
+  }
+
+  _SqlWhere _visibleTaskWhere(String deletedPredicate) {
+    return _SqlWhere(
+      '($deletedPredicate) AND (visibility = ? OR ownerUserId = ?)',
+      [SyncVisibility.shared.storedValue, _normalizeUserId(currentUserId)],
+    );
   }
 
   Future<void> _createSchema(DatabaseExecutor db) async {
@@ -1101,22 +1146,7 @@ class LocalTodoRepository extends ChangeNotifier {
     Map<String, Object?>? existingRow,
   ) {
     if (existingRow == null) {
-      return const {
-        'owner_user_id',
-        'visibility',
-        'workspace_id',
-        'created_by_user_id',
-        'title',
-        'note',
-        'category',
-        'is_completed',
-        'shared_completion_mode',
-        'completed_by_user_ids',
-        'due_at',
-        'reminder_option',
-        'reminder_value',
-        'deleted_at',
-      };
+      return _allTaskSyncFieldNames;
     }
 
     final fields = <String>{};
@@ -1699,7 +1729,10 @@ class LocalTodoRepository extends ChangeNotifier {
           entityType: 'task',
           entitySyncId: task.syncId,
           operation: 'upsert',
-          payloadJson: _encodeTaskPayload(task),
+          payloadJson: _encodeTaskPayload(
+            task,
+            changedTaskFields: _allTaskSyncFieldNames,
+          ),
           createdAt: now,
         );
       }
@@ -2258,4 +2291,11 @@ class LocalTodoRepository extends ChangeNotifier {
     if (value == null) return null;
     return DateTime.fromMillisecondsSinceEpoch(value);
   }
+}
+
+class _SqlWhere {
+  const _SqlWhere(this.where, this.args);
+
+  final String where;
+  final List<Object?> args;
 }
