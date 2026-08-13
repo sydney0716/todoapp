@@ -562,13 +562,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
     _autoSyncInFlight = true;
     try {
-      final result = await _syncRunner();
+      final result = await _manualSyncRunner();
       if (!mounted) return;
       _showMessage(
         strings.syncResultMessage(
           pushed: result.pushedCount,
           pulled: result.pulledCount,
           failed: result.failedCount,
+          snapshotReconciled: result.snapshotReconciled,
         ),
       );
     } catch (error) {
@@ -712,6 +713,14 @@ class _HomeScreenState extends State<HomeScreen> {
               repository: widget.repository,
               settings: widget.settings,
             ).syncNow();
+  }
+
+  TodoSyncRunner get _manualSyncRunner {
+    return widget.syncRunner ??
+        () => TodoSyncService(
+              repository: widget.repository,
+              settings: widget.settings,
+            ).syncNow(reconcileSnapshot: true);
   }
 
   bool get _canAutoSync {

@@ -102,6 +102,85 @@ void main() {
     expect(transport.requests[1].uri.queryParameters['cursor'], '0');
   });
 
+  test('syncNow can reconcile a stale local snapshot after empty pull',
+      () async {
+    final tempDir =
+        await Directory.systemTemp.createTemp('personaltodo_sync_reconcile_');
+    final repository = LocalTodoRepository(
+      databasePath: path.join(tempDir.path, 'personal_todo.db'),
+    );
+    final settings = SettingsController(
+      store: SettingsStore(
+        databasePath: path.join(tempDir.path, 'settings.db'),
+      ),
+    );
+
+    await settings.init();
+    await repository.init();
+    addTearDown(() async {
+      await settings.close();
+      await repository.close();
+      await tempDir.delete(recursive: true);
+    });
+
+    await settings.recordServerConnectionSuccess(
+      username: 'hoyoung',
+      cursor: '10',
+      taskCount: 0,
+      session: AuthSession(
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+        tokenType: 'bearer',
+        userId: defaultCurrentUserId,
+        deviceId: repository.deviceId,
+      ),
+    );
+    final remoteTask = TodoTask(
+      syncId: '11111111-1111-4111-8111-111111111111',
+      ownerUserId: defaultCurrentUserId,
+      createdByUserId: defaultCurrentUserId,
+      updatedByUserId: defaultCurrentUserId,
+      title: 'Server only task',
+      createdAt: DateTime.utc(2026, 8),
+      updatedAt: DateTime.utc(2026, 8, 1),
+      version: 1,
+      syncStatus: SyncStatus.synced,
+      deviceId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    );
+    final transport = FakeTodoApiTransport([
+      jsonResponse({
+        'cursor': '10',
+        'changes': <Object?>[],
+      }),
+      jsonResponse({
+        'cursor': '12',
+        'tasks': [_taskRecord(remoteTask)],
+      }),
+    ]);
+    final service = TodoSyncService(
+      repository: repository,
+      settings: settings,
+      clientFactory: (baseUrl) => TodoApiClient(
+        baseUrl: baseUrl,
+        transport: transport,
+      ),
+    );
+
+    final result = await service.syncNow(reconcileSnapshot: true);
+
+    expect(result.pushedCount, 0);
+    expect(result.pulledCount, 0);
+    expect(result.failedCount, 0);
+    expect(result.snapshotReconciled, isTrue);
+    expect(result.cursor, '12');
+    expect(settings.lastSyncCursor, '12');
+    expect(repository.tasks.single.title, 'Server only task');
+    expect(transport.requests, hasLength(2));
+    expect(transport.requests[0].uri.path, '/sync/tasks');
+    expect(transport.requests[0].uri.queryParameters['cursor'], '10');
+    expect(transport.requests[1].uri.path, '/sync/bootstrap');
+  });
+
   test('syncNow does not share in-flight work across repositories', () async {
     final firstTempDir =
         await Directory.systemTemp.createTemp('personaltodo_sync_scope_1_');
@@ -995,6 +1074,8 @@ Map<String, Object?> _taskRecord(TodoTask task) {
     'note': task.note,
     'category': task.category,
     'is_completed': task.isCompleted,
+    'shared_completion_mode': task.sharedCompletionMode.storedValue,
+    'completed_by_user_ids': task.completedByUserIds,
     'due_at': task.dueDateTime?.toIso8601String(),
     'reminder_option': task.reminderOption.storedValue,
     'reminder_value': task.reminderValue,

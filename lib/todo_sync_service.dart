@@ -25,12 +25,12 @@ class TodoSyncService {
   final TodoApiClientFactory _clientFactory;
   static final Map<_SyncScope, Future<TodoSyncResult>> _activeSyncs = {};
 
-  Future<TodoSyncResult> syncNow() async {
+  Future<TodoSyncResult> syncNow({bool reconcileSnapshot = false}) async {
     final syncScope = _SyncScope(repository, settings);
     final activeSync = _activeSyncs[syncScope];
     if (activeSync != null) return activeSync;
 
-    final sync = _syncNow();
+    final sync = _syncNow(reconcileSnapshot: reconcileSnapshot);
     _activeSyncs[syncScope] = sync;
     return sync.whenComplete(() {
       if (identical(_activeSyncs[syncScope], sync)) {
@@ -39,7 +39,7 @@ class TodoSyncService {
     });
   }
 
-  Future<TodoSyncResult> _syncNow() async {
+  Future<TodoSyncResult> _syncNow({required bool reconcileSnapshot}) async {
     if (settings.refreshToken.isEmpty) {
       throw const TodoSyncException('Connect to the server first.');
     }
@@ -181,13 +181,33 @@ class TodoSyncService {
       );
       accessToken = pullResult.accessToken;
       final pull = pullResult.value;
-      final cursor = pull.cursor;
+      var cursor = pull.cursor;
       final pulledCount = await repository.applySyncedChanges(
         pull.changes.map(_syncedTaskChangeFromRemote).toList(growable: false),
       );
       await repository.moveExpiredCompletedTasksToTrash(
         settings.completedTaskRetentionPolicy,
       );
+      var snapshotReconciled = false;
+
+      if (reconcileSnapshot && failedCount == 0) {
+        final bootstrapResult = await _withFreshAccessToken(
+          client,
+          accessToken,
+          (token) => client.bootstrap(accessToken: token),
+        );
+        accessToken = bootstrapResult.accessToken;
+        final bootstrap = bootstrapResult.value;
+        await repository.reconcileBootstrapTasks(
+          bootstrap.tasks.map((task) => task.toTodoTask()).toList(),
+        );
+        await repository.moveExpiredCompletedTasksToTrash(
+          settings.completedTaskRetentionPolicy,
+        );
+        cursor = bootstrap.cursor;
+        snapshotReconciled = true;
+      }
+
       await settings.recordSyncSuccess(
         cursor: cursor,
         taskCount: repository.tasks.length + repository.trashTasks.length,
@@ -198,6 +218,7 @@ class TodoSyncService {
         pulledCount: pulledCount,
         failedCount: failedCount,
         cursor: cursor,
+        snapshotReconciled: snapshotReconciled,
       );
     } finally {
       client.close();
@@ -279,12 +300,14 @@ class TodoSyncResult {
     required this.pulledCount,
     required this.failedCount,
     required this.cursor,
+    this.snapshotReconciled = false,
   });
 
   final int pushedCount;
   final int pulledCount;
   final int failedCount;
   final String cursor;
+  final bool snapshotReconciled;
 }
 
 class _SyncScope {

@@ -235,6 +235,7 @@ class AppStrings {
     required int pushed,
     required int pulled,
     required int failed,
+    bool snapshotReconciled = false,
   }) {
     if (failed > 0) {
       if (_ko) return '동기화 실패 $failed개.';
@@ -243,6 +244,10 @@ class AppStrings {
     if (pushed > 0 || pulled > 0) {
       if (_ko) return '동기화 완료. 보낸 항목 $pushed개, 받은 항목 $pulled개.';
       return 'Sync completed. Sent $pushed, received $pulled.';
+    }
+    if (snapshotReconciled) {
+      if (_ko) return '동기화 완료. 서버 목록을 확인했습니다.';
+      return 'Sync completed. Server list checked.';
     }
     if (_ko) return '동기화 완료. 변경 없음.';
     return 'Sync completed. No changes.';
