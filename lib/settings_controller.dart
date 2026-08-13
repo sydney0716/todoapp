@@ -161,6 +161,7 @@ class SettingsController extends ChangeNotifier {
   static const _serverConnectionStatusKey = 'server_connection_status';
   static const _serverConnectionUsernameKey = 'server_connection_username';
   static const _lastSyncCursorKey = 'last_sync_cursor';
+  static const _lastSyncAtKey = 'last_sync_at';
   static const _lastBootstrapTaskCountKey = 'last_bootstrap_task_count';
   static const _accessTokenKey = 'server_access_token';
   static const _refreshTokenKey = 'server_refresh_token';
@@ -186,6 +187,7 @@ class SettingsController extends ChangeNotifier {
       ServerConnectionStatus.notConnected;
   String serverConnectionUsername = '';
   String lastSyncCursor = '';
+  DateTime? lastSyncAt;
   int lastBootstrapTaskCount = 0;
   String accessToken = '';
   String refreshToken = '';
@@ -286,9 +288,11 @@ class SettingsController extends ChangeNotifier {
     required int taskCount,
     AuthSession? session,
   }) async {
+    final syncedAt = DateTime.now();
     serverConnectionStatus = ServerConnectionStatus.connected;
     serverConnectionUsername = username.trim();
     lastSyncCursor = cursor;
+    lastSyncAt = syncedAt;
     lastBootstrapTaskCount = taskCount;
     if (session != null) {
       _applyAuthSession(session);
@@ -302,6 +306,7 @@ class SettingsController extends ChangeNotifier {
       serverConnectionUsername,
     );
     await _store.setString(_lastSyncCursorKey, lastSyncCursor);
+    await _store.setInt(_lastSyncAtKey, syncedAt.millisecondsSinceEpoch);
     await _store.setInt(_lastBootstrapTaskCountKey, lastBootstrapTaskCount);
     if (session != null) {
       await _writeAuthSession();
@@ -319,14 +324,17 @@ class SettingsController extends ChangeNotifier {
     required String cursor,
     required int taskCount,
   }) async {
+    final syncedAt = DateTime.now();
     serverConnectionStatus = ServerConnectionStatus.connected;
     lastSyncCursor = cursor;
+    lastSyncAt = syncedAt;
     lastBootstrapTaskCount = taskCount;
     await _store.setString(
       _serverConnectionStatusKey,
       serverConnectionStatus.storedValue,
     );
     await _store.setString(_lastSyncCursorKey, lastSyncCursor);
+    await _store.setInt(_lastSyncAtKey, syncedAt.millisecondsSinceEpoch);
     await _store.setInt(_lastBootstrapTaskCountKey, lastBootstrapTaskCount);
     notifyListeners();
   }
@@ -393,6 +401,7 @@ class SettingsController extends ChangeNotifier {
     serverConnectionUsername =
         await _store.getString(_serverConnectionUsernameKey) ?? '';
     lastSyncCursor = await _store.getString(_lastSyncCursorKey) ?? '';
+    lastSyncAt = _dateFromMillis(await _store.getInt(_lastSyncAtKey));
     lastBootstrapTaskCount =
         await _store.getInt(_lastBootstrapTaskCountKey) ?? 0;
     accessToken = await _store.getString(_accessTokenKey) ?? '';
@@ -423,5 +432,10 @@ class SettingsController extends ChangeNotifier {
       return storedValue!;
     }
     return defaultCurrentUserId;
+  }
+
+  DateTime? _dateFromMillis(int? millis) {
+    if (millis == null) return null;
+    return DateTime.fromMillisecondsSinceEpoch(millis);
   }
 }

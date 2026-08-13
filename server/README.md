@@ -8,10 +8,10 @@ Because the mobile app is strictly offline-first, this backend is completely sta
 
 * **Framework:** Python 3 + [FastAPI](https://fastapi.tiangolo.com/)
 * **Database:** PostgreSQL
-* **ORM:** SQLAlchemy (with async support)
+* **ORM:** SQLAlchemy ORM with synchronous sessions
 * **Auth:** Bearer tokens (JWT)
 * **Deployment:** Docker & Docker Compose
-* **Testing:** `pytest` with `pytest-asyncio`
+* **Testing:** `pytest`, FastAPI `TestClient`, and an opt-in Postgres smoke test
 
 ## How it Works
 
@@ -33,7 +33,7 @@ To run the server locally without Docker (useful for running tests or debugging)
 
 2. **Install Dependencies:**
    ```bash
-   pip install -r requirements.txt
+   python -m pip install -e '.[dev]'
    ```
 
 3. **Configure Environment:**
@@ -41,7 +41,7 @@ To run the server locally without Docker (useful for running tests or debugging)
    ```bash
    cp .env.example .env
    ```
-   *(Note: You will need a local PostgreSQL instance running and configured in your `.env` to start the server).*
+   *(Note: You will need a PostgreSQL instance configured in your `.env` to start the server. The default test suite uses fakes and does not require Postgres.)*
 
 4. **Start the Server:**
    ```bash
@@ -51,10 +51,23 @@ To run the server locally without Docker (useful for running tests or debugging)
 
 ## Running Tests
 
-The server has a comprehensive integration test suite. Ensure your local Postgres database is running, then execute:
+Run the default test suite:
 
 ```bash
-pytest
+python -m pytest
+```
+
+Run the real Postgres migration/auth/task/sync smoke only when a disposable database is available:
+
+```bash
+TODOAPP_TEST_DATABASE_URL=postgresql+psycopg://user:password@localhost:5432/personaltodo_test \
+  python -m pytest tests/test_postgres_smoke.py
+```
+
+Run linting:
+
+```bash
+python -m ruff check app tests
 ```
 
 ## Production Deployment

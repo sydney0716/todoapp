@@ -51,6 +51,19 @@ class AppStrings {
   String get syncing => _ko ? '동기화 중' : 'Syncing';
   String get syncNow => _ko ? '동기화' : 'Sync now';
   String get syncingNow => _ko ? '동기화 중...' : 'Syncing...';
+  String get syncStatus => _ko ? '동기화 상태' : 'Sync status';
+  String get openSyncDetails => _ko ? '동기화 세부 정보 열기' : 'Open sync details';
+  String get syncOffline => _ko ? '동기화 꺼짐' : 'Sync off';
+  String get syncReady => _ko ? '동기화 준비됨' : 'Sync ready';
+  String get syncComplete => _ko ? '동기화됨' : 'Synced';
+  String get retryReady => _ko ? '재시도 가능' : 'Retry ready';
+  String get neverSynced => _ko ? '동기화 기록 없음' : 'Never synced';
+  String get syncDetails => _ko ? '동기화 세부 정보' : 'Sync details';
+  String get pendingChanges => _ko ? '대기 중인 변경' : 'Pending changes';
+  String get failedChanges => _ko ? '실패한 변경' : 'Failed changes';
+  String get nextRetry => _ko ? '다음 재시도' : 'Next retry';
+  String get serverStatus => _ko ? '서버 상태' : 'Server status';
+  String get lastSync => _ko ? '마지막 동기화' : 'Last sync';
   String get passwordRequired => _ko ? '비밀번호를 입력하세요.' : 'Password is required.';
   String get unexpectedServerResponse =>
       _ko ? '예상하지 못한 서버 응답입니다.' : 'Unexpected server response.';
@@ -251,6 +264,31 @@ class AppStrings {
     }
     if (_ko) return '동기화 완료. 변경 없음.';
     return 'Sync completed. No changes.';
+  }
+
+  String pendingSyncCount(int count) {
+    if (_ko) return '대기 $count개';
+    return '$count pending';
+  }
+
+  String failedSyncCount(int count) {
+    if (_ko) return '실패 $count개';
+    return '$count failed';
+  }
+
+  String retryAt(String value) {
+    if (_ko) return '$value 재시도';
+    return 'Retry $value';
+  }
+
+  String lastSyncAt(String value) {
+    if (_ko) return '마지막 $value';
+    return 'Last $value';
+  }
+
+  String syncItemCount(int count) {
+    if (_ko) return '$count개';
+    return '$count';
   }
 
   String completedOn(String date) {

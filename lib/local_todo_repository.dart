@@ -8,28 +8,12 @@ import 'package:sqflite/sqflite.dart';
 
 import 'models.dart';
 import 'native_widget_bridge.dart';
+import 'sync_contract.dart';
 
-const _changedTaskFieldsPayloadKey = '_changed_task_fields';
 const _syncMetadataBackfilledKey = 'sync_metadata_backfilled';
 const _initialSyncRetryDelay = Duration(minutes: 5);
 const _maxSyncRetryDelay = Duration(hours: 1);
 const _trashPurgeDelay = Duration(days: 30);
-const _allTaskSyncFieldNames = {
-  'owner_user_id',
-  'visibility',
-  'workspace_id',
-  'created_by_user_id',
-  'title',
-  'note',
-  'category',
-  'is_completed',
-  'shared_completion_mode',
-  'completed_by_user_ids',
-  'due_at',
-  'reminder_option',
-  'reminder_value',
-  'deleted_at',
-};
 
 class LocalTodoRepository extends ChangeNotifier {
   static const databaseName = 'personal_todo.db';
@@ -126,10 +110,31 @@ class LocalTodoRepository extends ChangeNotifier {
     final failed = await _database.rawQuery(
       'SELECT COUNT(*) AS count FROM sync_queue WHERE lastError IS NOT NULL',
     );
+    final retry = await _database.rawQuery(
+      '''
+      SELECT MIN(nextAttemptAt) AS nextRetryAt
+      FROM sync_queue
+      WHERE lastError IS NOT NULL
+      ''',
+    );
     return SyncQueueSummary(
       pendingCount: Sqflite.firstIntValue(pending) ?? 0,
       failedCount: Sqflite.firstIntValue(failed) ?? 0,
+      nextRetryAt: _dateFromMillis(Sqflite.firstIntValue(retry)),
     );
+  }
+
+  Future<int> retryFailedSyncQueueNow() async {
+    final updated = await _database.rawUpdate(
+      '''
+      UPDATE sync_queue
+      SET nextAttemptAt = ?
+      WHERE lastError IS NOT NULL
+      ''',
+      [DateTime.now().millisecondsSinceEpoch],
+    );
+    if (updated > 0) notifyListeners();
+    return updated;
   }
 
   Future<void> markSyncQueueItemSucceeded(int id) async {
@@ -188,6 +193,7 @@ class LocalTodoRepository extends ChangeNotifier {
       ''',
       [error, retryAt.millisecondsSinceEpoch, id],
     );
+    notifyListeners();
   }
 
   Future<DateTime> _nextSyncRetryAt(int id) async {
@@ -1146,7 +1152,7 @@ class LocalTodoRepository extends ChangeNotifier {
     Map<String, Object?>? existingRow,
   ) {
     if (existingRow == null) {
-      return _allTaskSyncFieldNames;
+      return taskSyncFieldNames;
     }
 
     final fields = <String>{};
@@ -1555,7 +1561,7 @@ class LocalTodoRepository extends ChangeNotifier {
   }) {
     return jsonEncode({
       if (changedTaskFields.isNotEmpty)
-        _changedTaskFieldsPayloadKey: changedTaskFields.toList()..sort(),
+        changedTaskFieldsPayloadKey: changedTaskFields.toList()..sort(),
       'id': task.syncId,
       'owner_user_id': _normalizeUserId(task.ownerUserId),
       'visibility': task.visibility.storedValue,
@@ -1731,7 +1737,7 @@ class LocalTodoRepository extends ChangeNotifier {
           operation: 'upsert',
           payloadJson: _encodeTaskPayload(
             task,
-            changedTaskFields: _allTaskSyncFieldNames,
+            changedTaskFields: taskSyncFieldNames,
           ),
           createdAt: now,
         );
@@ -1821,9 +1827,9 @@ class LocalTodoRepository extends ChangeNotifier {
 
     final merged = Map<String, Object?>.from(incoming);
     if (changedTaskFields.isEmpty) {
-      merged.remove(_changedTaskFieldsPayloadKey);
+      merged.remove(changedTaskFieldsPayloadKey);
     } else {
-      merged[_changedTaskFieldsPayloadKey] = changedTaskFields;
+      merged[changedTaskFieldsPayloadKey] = changedTaskFields;
     }
     merged['subtasks'] = subTasksBySyncId.values.toList(growable: false);
     return jsonEncode(merged);
@@ -2044,9 +2050,9 @@ class LocalTodoRepository extends ChangeNotifier {
       }
 
       if (pendingTaskFields.isEmpty) {
-        payload.remove(_changedTaskFieldsPayloadKey);
+        payload.remove(changedTaskFieldsPayloadKey);
       } else {
-        payload[_changedTaskFieldsPayloadKey] = pendingTaskFields;
+        payload[changedTaskFieldsPayloadKey] = pendingTaskFields;
       }
       payload['subtasks'] = pendingSubtasks;
       await db.update(
@@ -2209,7 +2215,7 @@ class LocalTodoRepository extends ChangeNotifier {
   }
 
   List<String> _changedTaskFieldsFromPayload(Map<String, Object?> payload) {
-    final value = payload[_changedTaskFieldsPayloadKey];
+    final value = payload[changedTaskFieldsPayloadKey];
     if (value is! List) return const [];
     return value.whereType<String>().toList(growable: false);
   }

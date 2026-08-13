@@ -28,7 +28,19 @@ class NativeWidgetBridge {
     if (!_isAndroid) return null;
 
     try {
-      return await _channel.invokeMethod<String>('consumeInitialAction');
+      final action = await _channel.invokeMethod<Object?>(
+        'consumeInitialAction',
+      );
+      if (action is String) return action;
+
+      final handler = _actionHandler;
+      if (handler == null) return null;
+      final arguments = _mapFromAction(action);
+      final type = arguments['type'] as String?;
+      if (type != null) {
+        await handler(type, arguments);
+      }
+      return null;
     } on MissingPluginException {
       return null;
     } on PlatformException {
@@ -55,6 +67,13 @@ class NativeWidgetBridge {
       switch (call.method) {
         case 'openNewTask':
           await onAction(openNewTaskAction, const {});
+          return null;
+        case 'widgetAction':
+          final arguments = _mapFromAction(call.arguments);
+          final type = arguments['type'] as String?;
+          if (type != null) {
+            await onAction(type, arguments);
+          }
           return null;
         default:
           throw MissingPluginException(
@@ -180,8 +199,33 @@ class NativeWidgetBridge {
   }
 
   static Future<void> consumePendingWidgetActions() async {
-    if (_isMacOS) {
+    if (_isAndroid) {
+      await _consumePendingPlatformWidgetActions();
+    } else if (_isMacOS) {
       await _consumePendingMacWidgetActions();
+    }
+  }
+
+  static Future<void> _consumePendingPlatformWidgetActions() async {
+    final handler = _actionHandler;
+    if (handler == null) return;
+
+    try {
+      final actions = await _channel.invokeMethod<List<dynamic>>(
+            'consumePendingWidgetActions',
+          ) ??
+          const <dynamic>[];
+
+      for (final action in actions) {
+        final arguments = _mapFromAction(action);
+        final type = arguments['type'] as String?;
+        if (type == null) continue;
+        await handler(type, arguments);
+      }
+    } on MissingPluginException {
+      return;
+    } on PlatformException {
+      return;
     }
   }
 

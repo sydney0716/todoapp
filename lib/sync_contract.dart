@@ -1,0 +1,18 @@
+const changedTaskFieldsPayloadKey = '_changed_task_fields';
+
+const taskSyncFieldNames = {
+  'owner_user_id',
+  'visibility',
+  'workspace_id',
+  'created_by_user_id',
+  'title',
+  'note',
+  'category',
+  'is_completed',
+  'shared_completion_mode',
+  'completed_by_user_ids',
+  'due_at',
+  'reminder_option',
+  'reminder_value',
+  'deleted_at',
+};

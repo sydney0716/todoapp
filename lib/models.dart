@@ -475,10 +475,12 @@ class SyncQueueSummary {
   const SyncQueueSummary({
     required this.pendingCount,
     required this.failedCount,
+    this.nextRetryAt,
   });
 
   final int pendingCount;
   final int failedCount;
+  final DateTime? nextRetryAt;
 }
 
 class SyncedTaskChange {

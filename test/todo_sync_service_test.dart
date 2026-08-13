@@ -89,6 +89,7 @@ void main() {
     expect(result.failedCount, 0);
     expect(result.cursor, '1');
     expect(settings.lastSyncCursor, '1');
+    expect(settings.lastSyncAt, isNotNull);
     expect(await _syncQueueCount(repository), 0);
     expect(repository.tasks.single.title, 'Sync me');
     expect(repository.tasks.single.syncStatus, SyncStatus.synced);

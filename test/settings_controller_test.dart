@@ -176,6 +176,7 @@ void main() {
     expect(settings.serverConnectionStatus, ServerConnectionStatus.connected);
     expect(settings.serverConnectionUsername, 'user1');
     expect(settings.lastSyncCursor, '12');
+    expect(settings.lastSyncAt, isNotNull);
     expect(settings.lastBootstrapTaskCount, 3);
     expect(settings.accessToken, 'access-token');
     expect(settings.refreshToken, 'refresh-token');

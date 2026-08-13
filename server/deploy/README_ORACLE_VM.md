@@ -165,17 +165,15 @@ server/deploy/backup_postgres_docker.sh
 
 Restore backups only after stopping app writes and confirming the target database. Treat restore as a deliberate maintenance operation, not an automatic process.
 
-## 8. Next Required Backend Work
+## 8. Remaining Release Checks
 
-Before the Android, iOS, iPadOS, and macOS apps can sync all data through this VM:
+Before treating the Android, iOS, iPadOS, and macOS apps as release-ready against this VM:
 
-1. Add client API configuration in Flutter.
-2. Wire the Flutter auth flow.
-3. Drain local task sync queue through `POST /sync/tasks`.
-4. Apply bootstrap/pull task changes to the local repository.
-5. Implement trash retention settings and purge jobs.
-6. Implement habit and habit completion sync.
-7. Test install-over migration from the old Android app.
+1. Run the opt-in Postgres migration/auth/task/sync smoke test against a disposable database using `TODOAPP_TEST_DATABASE_URL`.
+2. Verify a clean device-to-device task sync path: login, bootstrap, local queue push, pull, trash restore, permanent delete, shared/private visibility, and Android widget completion.
+3. Confirm the app API URL is set to the production domain on each device build.
+4. Test install-over migration from the old Android app.
+5. Decide whether trash settings and habit/habit completion sync remain deferred for this release or need server schema/API work.
 
 ## References
 

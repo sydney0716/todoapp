@@ -26,9 +26,14 @@ public class TodoHomeWidgetService extends RemoteViewsService {
         private static final String SETTINGS_DATABASE_NAME = "personal_todo_settings.db";
         private static final String TASK_SORT_OPTION_KEY = "task_sort_option";
         private static final String TASK_SORT_DIRECTION_KEY = "task_sort_direction";
+        private static final String CURRENT_USER_ID_KEY = "current_user_id";
         private static final String SORT_OPTION_TITLE = "title";
         private static final String SORT_OPTION_LAST_MODIFIED = "last_modified";
         private static final String SORT_DIRECTION_DESCENDING = "descending";
+        private static final String DEFAULT_CURRENT_USER_ID =
+                "00000000-0000-4000-8000-000000000001";
+        private static final String PARTNER_USER_ID =
+                "00000000-0000-4000-8000-000000000002";
         private static final String[] SHORT_MONTH_NAMES = {
                 "Jan", "Feb", "Mar", "Apr", "May", "Jun",
                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
@@ -140,9 +145,12 @@ public class TodoHomeWidgetService extends RemoteViewsService {
                 views.setTextViewText(R.id.widgetTaskDueDate, dueDateText);
             }
 
-            Intent fillInIntent = new Intent()
-                    .setAction(TodoHomeWidgetProvider.ACTION_MARK_TASK_DONE)
-                    .putExtra(TodoHomeWidgetProvider.EXTRA_TASK_ID, row.taskId);
+            Intent fillInIntent = MainActivity.widgetActionIntent(
+                    context,
+                    MainActivity.FLUTTER_ACTION_COMPLETE_TASK,
+                    row.taskId,
+                    0
+            );
             views.setOnClickFillInIntent(R.id.widgetTaskRow, fillInIntent);
             views.setOnClickFillInIntent(R.id.widgetTaskCheckbox, fillInIntent);
             views.setOnClickFillInIntent(R.id.widgetTaskTitle, fillInIntent);
@@ -170,10 +178,12 @@ public class TodoHomeWidgetService extends RemoteViewsService {
                 views.setTextViewText(R.id.widgetSubTaskDueDate, dueDateText);
             }
 
-            Intent fillInIntent = new Intent()
-                    .setAction(TodoHomeWidgetProvider.ACTION_MARK_SUBTASK_DONE)
-                    .putExtra(TodoHomeWidgetProvider.EXTRA_TASK_ID, row.taskId)
-                    .putExtra(TodoHomeWidgetProvider.EXTRA_SUBTASK_ID, row.subTaskId);
+            Intent fillInIntent = MainActivity.widgetActionIntent(
+                    context,
+                    MainActivity.FLUTTER_ACTION_COMPLETE_SUBTASK,
+                    row.taskId,
+                    row.subTaskId
+            );
             views.setOnClickFillInIntent(R.id.widgetSubTaskRow, fillInIntent);
             views.setOnClickFillInIntent(R.id.widgetSubTaskCheckbox, fillInIntent);
             views.setOnClickFillInIntent(R.id.widgetSubTaskTitle, fillInIntent);
@@ -222,7 +232,8 @@ public class TodoHomeWidgetService extends RemoteViewsService {
             )) {
                 return new SortSettings(
                         readSetting(database, TASK_SORT_OPTION_KEY),
-                        readSetting(database, TASK_SORT_DIRECTION_KEY)
+                        readSetting(database, TASK_SORT_DIRECTION_KEY),
+                        normalizeAppUserId(readSetting(database, CURRENT_USER_ID_KEY))
                 );
             } catch (SQLiteException exception) {
                 return SortSettings.defaults();
@@ -239,14 +250,42 @@ public class TodoHomeWidgetService extends RemoteViewsService {
             }
         }
 
+        private String normalizeAppUserId(String value) {
+            if (PARTNER_USER_ID.equals(value)
+                    || "user2".equals(value)
+                    || "partner".equals(value)) {
+                return PARTNER_USER_ID;
+            }
+            if (DEFAULT_CURRENT_USER_ID.equals(value)
+                    || "user1".equals(value)
+                    || "user".equals(value)) {
+                return DEFAULT_CURRENT_USER_ID;
+            }
+            return DEFAULT_CURRENT_USER_ID;
+        }
+
         private List<TaskItem> readTasks(SQLiteDatabase database, SortSettings sortSettings) {
             List<TaskItem> tasks = new ArrayList<>();
             boolean hasSubTaskDueDate = hasColumn(database, "subtasks", "dueDateTime");
+            boolean canFilterByOwner = hasColumn(database, "tasks", "visibility")
+                    && hasColumn(database, "tasks", "ownerUserId");
+            boolean includeLegacyPrivateTasks =
+                    DEFAULT_CURRENT_USER_ID.equals(sortSettings.currentUserId);
+            String ownershipFilter = "";
+            if (canFilterByOwner) {
+                ownershipFilter = includeLegacyPrivateTasks
+                        ? "AND (visibility = 'shared' OR ownerUserId = ? OR ownerUserId = '') "
+                        : "AND (visibility = 'shared' OR ownerUserId = ?) ";
+            }
+            String[] arguments = canFilterByOwner
+                    ? new String[]{sortSettings.currentUserId}
+                    : null;
             try (Cursor cursor = database.rawQuery(
                     "SELECT id, title, dueDateTime FROM tasks "
                             + "WHERE deletedAt IS NULL AND isCompleted = 0 "
+                            + ownershipFilter
                             + "ORDER BY " + sortSettings.orderByClause(),
-                    null
+                    arguments
             )) {
                 while (cursor.moveToNext()) {
                     long taskId = cursor.getLong(0);
@@ -342,14 +381,16 @@ public class TodoHomeWidgetService extends RemoteViewsService {
         private static final class SortSettings {
             final String option;
             final String direction;
+            final String currentUserId;
 
-            SortSettings(String option, String direction) {
+            SortSettings(String option, String direction, String currentUserId) {
                 this.option = option;
                 this.direction = direction;
+                this.currentUserId = currentUserId;
             }
 
             static SortSettings defaults() {
-                return new SortSettings(null, null);
+                return new SortSettings(null, null, DEFAULT_CURRENT_USER_ID);
             }
 
             String orderByClause() {

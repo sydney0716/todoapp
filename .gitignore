@@ -6,6 +6,7 @@ build/
 /app/
 local_backups/
 docs/*
+!docs/sync_task_fields.json
 !docs/pm/
 !docs/pm/*.md
 

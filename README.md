@@ -14,10 +14,10 @@ This repository contains both the Flutter client and the Python/FastAPI sync bac
 
 ## Key Features
 
-* **Cross-Platform Sync:** Runs on Mac, Android, and iOS with seamless synchronization between all devices.
+* **Cross-Platform Sync:** Runs on Mac, Android, and iOS with an offline-first sync queue, retry state, and last-sync visibility.
 * **Shared Completions:** Task models can be configured to require completion by either one user or both users.
 * **Subtasks & Aggregates:** Complex data structures that sync atomically.
-* **Widgets:** Native Android and macOS widgets integrated via Method Channels.
+* **Widgets:** Native Android and macOS widgets integrated via Method Channels; Android widget completion actions route through the Flutter repository so sync metadata stays consistent.
 
 ## Architecture
 
@@ -26,9 +26,9 @@ The repository is structured as a monorepo containing both the mobile app and th
 ### 1. Mobile Client (Flutter)
 The mobile app is built with Flutter using Clean Architecture principles.
 * **Local Storage:** Driven by `sqflite`. The `LocalTodoRepository` acts as the single source of truth for the UI.
-* **Sync Queue:** Every mutation generates a JSON payload that is added to a local sync queue table. 
+* **Sync Queue:** Every mutation generates a JSON payload that is added to a local sync queue table.
 * **State Management:** Reactive updates using `ChangeNotifier` to decouple the UI from networking logic.
-* **Testing:** The client includes a test suite (60+ tests) covering UI components, local repository state manipulation, and sync protocol logic. 
+* **Testing:** The client includes a Flutter test suite covering UI components, local repository state manipulation, native widget actions, and sync protocol logic.
 
 ### 2. Backend Server (Python)
 The backend is a REST API that acts as the synchronization hub.

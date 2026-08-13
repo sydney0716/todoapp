@@ -11,7 +11,9 @@ import android.os.Build;
 
 import androidx.annotation.NonNull;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import io.flutter.embedding.android.FlutterActivity;
@@ -28,7 +30,14 @@ public class MainActivity extends FlutterActivity {
     private static final int NOTIFICATION_PERMISSION_REQUEST_CODE = 9402;
     private static final String ACTION_OPEN_NEW_TASK =
             "com.example.personaltodo.widget.OPEN_NEW_TASK";
+    private static final String ACTION_WIDGET_ACTION =
+            "com.example.personaltodo.widget.ACTION";
     private static final String FLUTTER_ACTION_OPEN_NEW_TASK = "open_new_task";
+    static final String FLUTTER_ACTION_COMPLETE_TASK = "complete_task";
+    static final String FLUTTER_ACTION_COMPLETE_SUBTASK = "complete_subtask";
+    private static final String EXTRA_FLUTTER_ACTION = "flutter_action";
+    private static final String EXTRA_TASK_ID = "taskId";
+    private static final String EXTRA_SUBTASK_ID = "subTaskId";
     private static final String LEGACY_PREFERENCES = "personal_todo_preferences";
     private static final String FLUTTER_PREFERENCES = "FlutterSharedPreferences";
     private static final String FLUTTER_PREFERENCE_PREFIX = "flutter.";
@@ -37,7 +46,7 @@ public class MainActivity extends FlutterActivity {
     private static final String KEY_TIME_FORMAT = "time_format";
     private static final String KEY_STARTER_CONTENT_VERSION = "starter_content_version";
     private MethodChannel widgetActionsChannel;
-    private String pendingWidgetAction;
+    private final List<Map<String, Object>> pendingWidgetActions = new ArrayList<>();
 
     static Intent newTaskIntent(Context context) {
         return new Intent(context, MainActivity.class)
@@ -56,6 +65,33 @@ public class MainActivity extends FlutterActivity {
                                 | Intent.FLAG_ACTIVITY_CLEAR_TOP
                                 | Intent.FLAG_ACTIVITY_SINGLE_TOP
                 );
+    }
+
+    static Intent widgetActionTemplateIntent(Context context) {
+        return openAppIntent(context).setAction(ACTION_WIDGET_ACTION);
+    }
+
+    static Intent widgetActionIntent(
+            Context context,
+            String flutterAction,
+            long taskId,
+            long subTaskId
+    ) {
+        Intent intent = new Intent(context, MainActivity.class)
+                .setAction(ACTION_WIDGET_ACTION)
+                .setFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK
+                                | Intent.FLAG_ACTIVITY_CLEAR_TOP
+                                | Intent.FLAG_ACTIVITY_SINGLE_TOP
+                )
+                .putExtra(EXTRA_FLUTTER_ACTION, flutterAction);
+        if (taskId > 0) {
+            intent.putExtra(EXTRA_TASK_ID, taskId);
+        }
+        if (subTaskId > 0) {
+            intent.putExtra(EXTRA_SUBTASK_ID, subTaskId);
+        }
+        return intent;
     }
 
     @Override
@@ -80,9 +116,10 @@ public class MainActivity extends FlutterActivity {
         );
         widgetActionsChannel.setMethodCallHandler((call, result) -> {
             if ("consumeInitialAction".equals(call.method)) {
-                String action = pendingWidgetAction;
-                pendingWidgetAction = null;
+                Map<String, Object> action = consumeNextPendingWidgetAction();
                 result.success(action);
+            } else if ("consumePendingWidgetActions".equals(call.method)) {
+                result.success(consumePendingWidgetActions());
             } else if ("refreshWidget".equals(call.method)) {
                 TodoHomeWidgetProvider.updateWidgets(this);
                 result.success(null);
@@ -121,15 +158,15 @@ public class MainActivity extends FlutterActivity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
-        String action = widgetActionFromIntent(intent);
+        Map<String, Object> action = widgetActionFromIntent(intent);
         if (action == null) return;
 
         if (widgetActionsChannel == null) {
-            pendingWidgetAction = action;
+            pendingWidgetActions.add(action);
             return;
         }
 
-        widgetActionsChannel.invokeMethod("openNewTask", null);
+        widgetActionsChannel.invokeMethod("widgetAction", action);
     }
 
     @Override
@@ -155,18 +192,48 @@ public class MainActivity extends FlutterActivity {
     }
 
     private void captureWidgetAction(Intent intent) {
-        String action = widgetActionFromIntent(intent);
+        Map<String, Object> action = widgetActionFromIntent(intent);
         if (action != null) {
-            pendingWidgetAction = action;
+            pendingWidgetActions.add(action);
         }
     }
 
-    private String widgetActionFromIntent(Intent intent) {
+    private Map<String, Object> widgetActionFromIntent(Intent intent) {
         if (intent == null) return null;
         if (ACTION_OPEN_NEW_TASK.equals(intent.getAction())) {
-            return FLUTTER_ACTION_OPEN_NEW_TASK;
+            return widgetAction(FLUTTER_ACTION_OPEN_NEW_TASK, intent);
+        }
+        if (ACTION_WIDGET_ACTION.equals(intent.getAction())) {
+            String flutterAction = intent.getStringExtra(EXTRA_FLUTTER_ACTION);
+            if (flutterAction == null || flutterAction.isEmpty()) return null;
+            return widgetAction(flutterAction, intent);
         }
         return null;
+    }
+
+    private Map<String, Object> widgetAction(String type, Intent intent) {
+        Map<String, Object> action = new HashMap<>();
+        action.put("type", type);
+        long taskId = intent.getLongExtra(EXTRA_TASK_ID, 0);
+        long subTaskId = intent.getLongExtra(EXTRA_SUBTASK_ID, 0);
+        if (taskId > 0) {
+            action.put("taskId", taskId);
+        }
+        if (subTaskId > 0) {
+            action.put("subTaskId", subTaskId);
+        }
+        return action;
+    }
+
+    private Map<String, Object> consumeNextPendingWidgetAction() {
+        if (pendingWidgetActions.isEmpty()) return null;
+        return pendingWidgetActions.remove(0);
+    }
+
+    private List<Map<String, Object>> consumePendingWidgetActions() {
+        List<Map<String, Object>> actions = new ArrayList<>(pendingWidgetActions);
+        pendingWidgetActions.clear();
+        return actions;
     }
 
     private void scheduleTaskReminder(Map<?, ?> arguments) {

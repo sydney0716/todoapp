@@ -5,11 +5,11 @@ import 'api/todo_api_models.dart';
 import 'local_todo_repository.dart';
 import 'models.dart';
 import 'settings_controller.dart';
+import 'sync_contract.dart';
 
 typedef TodoSyncRunner = Future<TodoSyncResult> Function();
 typedef TodoApiClientFactory = TodoApiClient Function(String baseUrl);
 
-const _changedTaskFieldsPayloadKey = '_changed_task_fields';
 const _taskPushBatchSize = 25;
 
 class TodoSyncService {
@@ -80,7 +80,7 @@ class TodoSyncService {
         final changedTaskFields = _changedTaskFieldsFor(payload);
         final changedSubtaskSyncIds = _changedSubtaskSyncIdsFor(payload);
         final record = Map<String, Object?>.of(payload)
-          ..remove(_changedTaskFieldsPayloadKey);
+          ..remove(changedTaskFieldsPayloadKey);
 
         pendingTaskPushes.add(
           _PendingTaskPush(
@@ -247,7 +247,7 @@ class TodoSyncService {
   }
 
   List<String> _changedTaskFieldsFor(Map<String, Object?> payload) {
-    final value = payload[_changedTaskFieldsPayloadKey];
+    final value = payload[changedTaskFieldsPayloadKey];
     if (value is! List) return const [];
     return value.whereType<String>().toList(growable: false);
   }

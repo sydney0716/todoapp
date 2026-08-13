@@ -39,6 +39,14 @@ iOS/iPadOS, and macOS, backed by a small FastAPI/Postgres sync service.
   by retention, keeps logout from deleting referenced device rows, filters
   local private tasks by active user, and preserves queued local changes during
   bootstrap reconciliation.
-- Confirmed remaining risk: Android widget mutations still need a sync-queue
-  path, top-level sync status UI is still missing, and a real Postgres
-  migration smoke test has not been run.
+- Confirmed 2026-08-13 native remediation: Android widget task/subtask
+  completion now enters Flutter repository actions instead of writing SQLite
+  directly, and widget task reads filter active-user private items.
+- Confirmed 2026-08-13 P1/P2 remediation: Home now exposes sync status/details
+  for pending, failed, offline, retry, in-flight, and last-sync states; app and
+  server sync field metadata are covered by contract tests.
+- Confirmed 2026-08-13 P3 cleanup: public/server/deploy docs now match the
+  implemented sync surface, default server tests are documented as fake-backed,
+  and the `psycopg` requirements bound matches `pyproject.toml`.
+- Confirmed remaining risk: a real Postgres migration smoke test has not been
+  run locally; an opt-in `TODOAPP_TEST_DATABASE_URL` smoke test now exists.

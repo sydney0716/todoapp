@@ -15,11 +15,14 @@ Updated: 2026-08-13
 - Now: Repository-wide audit completed on 2026-08-13. Core P1
   sync/deployment/data-safety fixes are implemented for app repository reads,
   bootstrap reconciliation, sync payload deltas, server LWW handling, purge
-  retention, logout/device behavior, and Oracle VM migration order.
-- Blocked by: No real Postgres migration smoke test was run; backend tests used
-  a temp dependency target and fake DB tests.
-- Next checkpoint: Fix Android widget sync queue behavior and add visible sync
-  status UI, then run server migrations against a real Postgres instance.
+  retention, logout/device behavior, Oracle VM migration order, and Android
+  widget mutation routing/privacy. Visible sync status/details UI is now
+  implemented. P3 stale docs/config cleanup is complete.
+- Blocked by: No real Postgres migration smoke test was run; an opt-in
+  `TODOAPP_TEST_DATABASE_URL` smoke test exists but was skipped locally.
+- Next checkpoint: Run server migrations against a real Postgres instance, then
+  finish remaining P2 UI coverage around tablet/Mac navigation and time picker
+  hardening.
 
 ## To-Do
 
@@ -28,12 +31,12 @@ Updated: 2026-08-13
 - [x] **P1 · backend-server** — Enforce trash retention before purge and fix logout/device FK behavior so sessions can be revoked after task creation.
 - [x] **P1 · backend-app + frontend** — Enforce private-owner isolation locally for active and trash task visibility.
 - [x] **P1 · backend-app** — Prevent bootstrap reconciliation from deleting pending/deferred local changes.
-- [ ] **P1 · backend-app/native** — Ensure Android widget mutations enqueue sync changes or route through Flutter repository behavior.
-- [ ] **P1 · frontend + backend-app** — Add top-level sync status and details entry point covering pending, failed, offline, retry, and last-sync state.
-- [ ] **P2 · backend-server** — Add Postgres-backed migration/auth/sync tests; fake DB tests miss FK, enum, and SQL constraint failures.
-- [ ] **P2 · frontend** — Add tablet/Mac navigation coverage, improve manual-sync feedback, replace or harden custom time picker, and fix completion-control accessibility.
-- [ ] **P2 · backend-app + backend-server** — Add contract tests or shared metadata for changed sync fields to prevent drift.
-- [ ] **P3 · code-quality** — Clean stale docs/config and defer large file splits until sync behavior is stable.
+- [x] **P1 · backend-app/native** — Ensure Android widget mutations enqueue sync changes or route through Flutter repository behavior.
+- [x] **P1 · frontend + backend-app** — Add top-level sync status and details entry point covering pending, failed, offline, retry, and last-sync state.
+- [ ] **P2 · backend-server** — Run Postgres-backed migration/auth/sync smoke against a real database; opt-in test harness exists and is skipped without `TODOAPP_TEST_DATABASE_URL`.
+- [ ] **P2 · frontend** — Add tablet/Mac navigation coverage and replace or harden custom time picker; manual-sync feedback and completion-control accessibility are partially remediated.
+- [x] **P2 · backend-app + backend-server** — Add contract tests or shared metadata for changed sync fields to prevent drift.
+- [x] **P3 · code-quality** — Clean stale docs/config and defer large file splits until sync behavior is stable.
 
 ## Recently Completed
 
@@ -43,4 +46,9 @@ Updated: 2026-08-13
 - [x] **backend-server** — Completed read-only server audit; backend validation blocked by missing `pytest`/`ruff`.
 - [x] **code-quality** — Completed repo-wide audit; `flutter analyze --no-pub` and full `flutter test` passed.
 - [x] **backend-app/backend-server/code-quality** — Applied P1 remediation for sync deltas, LWW conflict handling, retention-gated purge, logout token invalidation, local private-owner filtering, snapshot safety, runtime migration guard, Oracle deploy docs, and dead enum/helper cleanup.
-- [x] **validation** — `flutter analyze`, full `flutter test`, `ruff check server/app server/tests`, `python3 -m compileall server/app server/tests`, and `pytest server/tests` passed on 2026-08-13. Backend tests used temp deps from flexible `pyproject` bounds because pinned `psycopg-binary==3.2.3` is unavailable for local Python 3.14.
+- [x] **validation** — `flutter analyze`, full `flutter test`, `ruff check server/app server/tests`, `python3 -m compileall server/app server/tests`, and `pytest server/tests` passed on 2026-08-13. Backend tests used temp deps from the flexible `pyproject` bounds.
+- [x] **backend-app/native** — Removed direct SQLite writes from Android widget completion actions, routed widget task/subtask completions through the Flutter action bridge, filtered widget private task reads by active user, and validated with `flutter analyze`, full `flutter test`, and Android `assembleDebug`.
+- [x] **frontend/backend-app** — Added persistent Home sync status/details UI, last-sync timestamp persistence, failed retry timing, manual retry release, and a scroll-safe details sheet.
+- [x] **backend-app/backend-server** — Centralized changed sync field metadata in `docs/sync_task_fields.json` plus Dart/server contract tests.
+- [x] **backend-server** — Added opt-in Postgres migration/auth/task/sync smoke test gated by `TODOAPP_TEST_DATABASE_URL`; skipped locally because no real test database URL was configured.
+- [x] **code-quality** — Cleaned stale public/server/deploy docs, aligned the `psycopg` requirements bound with `pyproject.toml`, and left large file splits deferred until sync behavior is stable.

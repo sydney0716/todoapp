@@ -913,6 +913,49 @@ void main() {
 
     expect(repository.tasks.length, 1);
   });
+
+  test(
+      'sync queue summary reports failed retry timing and manual retry release',
+      () async {
+    final tempDir =
+        await Directory.systemTemp.createTemp('personaltodo_retry_summary_');
+    final repository = LocalTodoRepository(
+      databasePath: path.join(tempDir.path, 'personal_todo.db'),
+    );
+    await repository.init();
+    addTearDown(() async {
+      await repository.close();
+      await tempDir.delete(recursive: true);
+    });
+
+    await repository.upsertTask(TodoTask(title: 'Retry me'));
+    final queue = await repository.getPendingSyncQueue();
+    final retryAt = DateTime.now().add(const Duration(minutes: 30));
+    await repository.markSyncQueueItemFailed(
+      queue.single.id,
+      'Server rejected this change.',
+      nextAttemptAt: retryAt,
+    );
+
+    final failedSummary = await repository.getPendingSyncSummary();
+    expect(failedSummary.pendingCount, 1);
+    expect(failedSummary.failedCount, 1);
+    expect(failedSummary.nextRetryAt, isNotNull);
+    expect(
+      failedSummary.nextRetryAt!.millisecondsSinceEpoch,
+      retryAt.millisecondsSinceEpoch,
+    );
+
+    expect(await repository.retryFailedSyncQueueNow(), 1);
+    final releasedSummary = await repository.getPendingSyncSummary();
+    expect(releasedSummary.failedCount, 1);
+    expect(
+      releasedSummary.nextRetryAt!.isAfter(
+        DateTime.now().add(const Duration(seconds: 5)),
+      ),
+      isFalse,
+    );
+  });
 }
 
 Future<int> _syncQueueCount(LocalTodoRepository repository) async {
