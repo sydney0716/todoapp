@@ -46,10 +46,10 @@ bool isUuidLike(String? value) {
 }
 
 String normalizeAppUserId(String? value) {
-  if (value == partnerUserId || value == 'partner') {
+  if (value == partnerUserId || value == 'user2' || value == 'partner') {
     return partnerUserId;
   }
-  if (value == defaultCurrentUserId || value == 'user') {
+  if (value == defaultCurrentUserId || value == 'user1' || value == 'user') {
     return defaultCurrentUserId;
   }
   if (isUuidLike(value)) return value!;
@@ -80,13 +80,13 @@ class AppAccount {
 const appAccounts = [
   AppAccount(
     id: defaultCurrentUserId,
-    label: 'User',
-    username: 'user',
+    label: 'User 1',
+    username: 'user1',
   ),
   AppAccount(
     id: partnerUserId,
-    label: 'Partner',
-    username: 'partner',
+    label: 'User 2',
+    username: 'user2',
   ),
 ];
 

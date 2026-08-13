@@ -10,8 +10,8 @@ class Settings(BaseSettings):
     jwt_secret: str = "change-me"
     access_token_minutes: int = 15
     refresh_token_days: int = 60
-    user_password: str | None = None
-    partner_password: str | None = None
+    user1_password: str | None = None
+    user2_password: str | None = None
     auto_migrate: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")

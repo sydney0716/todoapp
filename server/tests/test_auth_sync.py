@@ -40,8 +40,8 @@ def test_settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setenv("JWT_SECRET", "test-jwt-secret")
     monkeypatch.setenv("ACCESS_TOKEN_MINUTES", "15")
     monkeypatch.setenv("REFRESH_TOKEN_DAYS", "60")
-    monkeypatch.setenv("USER_PASSWORD", "user-test-password")
-    monkeypatch.setenv("PARTNER_PASSWORD", "partner-test-password")
+    monkeypatch.setenv("USER1_PASSWORD", "user1-test-password")
+    monkeypatch.setenv("USER2_PASSWORD", "user2-test-password")
     get_settings.cache_clear()
     yield
     app.dependency_overrides.clear()
@@ -206,7 +206,7 @@ def test_shared_both_completion_round_trips_to_partner(client: TestClient) -> No
     assert accepted_record["completed_by_user_ids"] == [str(DEFAULT_CURRENT_USER_ID)]
     assert accepted_record["is_completed"] is False
 
-    partner_auth = _login(client, OTHER_DEVICE_ID, username="partner")
+    partner_auth = _login(client, OTHER_DEVICE_ID, username="user2")
     pull_response = client.get(
         "/sync/tasks",
         params={"cursor": "0"},
@@ -646,7 +646,7 @@ def test_shared_to_private_emits_remove_event_for_user_losing_visibility(
     assert events_by_user[DEFAULT_CURRENT_USER_ID].operation.value == "upsert"
     assert events_by_user[PARTNER_USER_ID].operation.value == "purge"
 
-    partner_auth = _login(client, OTHER_DEVICE_ID, username="partner")
+    partner_auth = _login(client, OTHER_DEVICE_ID, username="user2")
     pull_response = client.get(
         "/sync/tasks",
         params={"cursor": "0"},
@@ -664,7 +664,7 @@ def test_shared_to_private_emits_remove_event_for_user_losing_visibility(
 def test_stale_shared_push_is_rejected_after_task_becomes_private(
     client: TestClient, fake_db: FakeSession
 ) -> None:
-    auth = _login(client, OTHER_DEVICE_ID, username="partner")
+    auth = _login(client, OTHER_DEVICE_ID, username="user2")
     fake_db.add(_task(title="Private task", version=2))
 
     stale_shared_record = _task_record(
@@ -745,10 +745,10 @@ def _login(
     client: TestClient,
     device_id: UUID = DEVICE_ID,
     *,
-    username: str = "user",
+    username: str = "user1",
 ) -> dict[str, Any]:
     password = (
-        "partner-test-password" if username == "partner" else "user-test-password"
+        "user2-test-password" if username == "user2" else "user1-test-password"
     )
     response = client.post(
         "/auth/login",

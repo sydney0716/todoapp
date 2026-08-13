@@ -28,7 +28,7 @@ The archived Kotlin app and stale root `app/` Android build output have been rem
 Open this folder as the Flutter project root:
 
 ```text
-/Users/hoyoungchung/Documents/Android_apps
+/Users/user/Documents/Android_apps
 ```
 
 Then open `lib/main.dart` and run it on an emulator or Android device.
@@ -38,7 +38,7 @@ Then open `lib/main.dart` and run it on an emulator or Android device.
 Flutter is installed locally at `/opt/homebrew/share/flutter`. The local Android Gradle config is ignored by git; if this project is opened on another machine, set the SDK paths in `android/local.properties`:
 
 ```properties
-sdk.dir=/Users/hoyoungchung/Library/Android/sdk
+sdk.dir=/Users/user/Library/Android/sdk
 flutter.sdk=/absolute/path/to/flutter
 ```
 

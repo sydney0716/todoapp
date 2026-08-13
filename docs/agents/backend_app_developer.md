@@ -15,7 +15,7 @@ remains reliable across releases.
 - `lib/starter_content_seeder.dart`
 - App-side persistence and migration tests under `test/`
 - Android native settings bridge when it affects app data migration:
-  - `android/app/src/main/kotlin/com/hoyoungchung/personaltodo/MainActivity.kt`
+  - `android/app/src/main/kotlin/com/example/personaltodo/MainActivity.kt`
 
 ## Responsibilities
 
@@ -62,4 +62,3 @@ remains reliable across releases.
 - PM: confirm data retention requirements, migration risk tolerance, starter content behavior, and future sync expectations.
 - Backend Server Developer: align local model fields, IDs, timestamps, deletion semantics, and future sync conflict rules.
 - Frontend App Developer: maintain stable repository contracts, notify before changing model fields or async behavior, and support UI states for loading, failure, undo, and empty data.
-

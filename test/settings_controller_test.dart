@@ -150,7 +150,7 @@ void main() {
     await settings.init();
     await settings.setApiBaseUrl('hytodo.duckdns.org/');
     await settings.recordServerConnectionSuccess(
-      username: 'user',
+      username: 'user1',
       cursor: '12',
       taskCount: 3,
       session: const AuthSession(
@@ -174,7 +174,7 @@ void main() {
 
     expect(settings.apiBaseUrl, 'https://hytodo.duckdns.org');
     expect(settings.serverConnectionStatus, ServerConnectionStatus.connected);
-    expect(settings.serverConnectionUsername, 'user');
+    expect(settings.serverConnectionUsername, 'user1');
     expect(settings.lastSyncCursor, '12');
     expect(settings.lastBootstrapTaskCount, 3);
     expect(settings.accessToken, 'access-token');
@@ -194,7 +194,7 @@ void main() {
     await settings.init();
     expect(settings.initialLoginCompleted, isFalse);
     await settings.recordServerConnectionSuccess(
-      username: 'partner',
+      username: 'user2',
       cursor: '0',
       taskCount: 0,
       session: const AuthSession(

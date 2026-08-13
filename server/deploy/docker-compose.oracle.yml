@@ -9,8 +9,8 @@ services:
       ACCESS_TOKEN_MINUTES: ${ACCESS_TOKEN_MINUTES:-15}
       REFRESH_TOKEN_DAYS: ${REFRESH_TOKEN_DAYS:-60}
       AUTO_MIGRATE: ${AUTO_MIGRATE:-true}
-      USER_PASSWORD: ${USER_PASSWORD:?set USER_PASSWORD in server/.env}
-      PARTNER_PASSWORD: ${PARTNER_PASSWORD:?set PARTNER_PASSWORD in server/.env}
+      USER1_PASSWORD: ${USER1_PASSWORD:?set USER1_PASSWORD in server/.env}
+      USER2_PASSWORD: ${USER2_PASSWORD:?set USER2_PASSWORD in server/.env}
     depends_on:
       postgres:
         condition: service_healthy

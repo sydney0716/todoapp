@@ -6,12 +6,12 @@ Date: 2026-05-29
 
 Open this folder as the Flutter project root:
 
-`/Users/hoyoungchung/Documents/Android_apps`
+`/Users/user/Documents/Android_apps`
 
 Do not use:
 
-- `/Users/hoyoungchung/Documents/Android_apps/app`
-- `/Users/hoyoungchung/Documents/Android_apps/legacy_android`
+- `/Users/user/Documents/Android_apps/app`
+- `/Users/user/Documents/Android_apps/legacy_android`
 
 Both old Android/Kotlin locations have been removed.
 
@@ -27,7 +27,7 @@ Important app files:
 - `lib/screens/habit_editor_screen.dart`
 - `lib/screens/settings_screen.dart`
 - `lib/local_todo_repository.dart`
-- `android/app/src/main/java/com/hoyoungchung/personaltodo/MainActivity.java`
+- `android/app/src/main/java/com/example/personaltodo/MainActivity.java`
 
 ## Verification
 

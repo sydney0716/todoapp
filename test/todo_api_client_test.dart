@@ -27,7 +27,7 @@ void main() {
     );
 
     final session = await client.login(
-      username: 'user',
+      username: 'user1',
       password: 'private-password',
       deviceId: deviceId,
       platform: 'test',
@@ -43,7 +43,7 @@ void main() {
     expect(request.uri.toString(), 'https://example.test/api/auth/login');
     expect(request.headers['Content-Type'], 'application/json');
     final body = jsonDecode(request.body!) as Map<String, Object?>;
-    expect(body['username'], 'user');
+    expect(body['username'], 'user1');
     expect(body['password'], 'private-password');
     expect(body['device_id'], deviceId);
     expect(body['device_name'], 'Flutter Todo App');
@@ -93,7 +93,7 @@ void main() {
     final client = TodoApiClient(transport: transport);
 
     final result = await client.verifyConnection(
-      username: 'user',
+      username: 'user1',
       password: 'private-password',
       deviceId: deviceId,
     );

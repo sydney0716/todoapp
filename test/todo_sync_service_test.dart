@@ -47,7 +47,7 @@ void main() {
     });
 
     await settings.recordServerConnectionSuccess(
-      username: 'user',
+      username: 'user1',
       cursor: '0',
       taskCount: 0,
       session: AuthSession(
@@ -124,7 +124,7 @@ void main() {
     });
 
     await settings.recordServerConnectionSuccess(
-      username: 'hoyoung',
+      username: 'user1',
       cursor: '10',
       taskCount: 0,
       session: AuthSession(
@@ -217,7 +217,7 @@ void main() {
     });
 
     await firstSettings.recordServerConnectionSuccess(
-      username: 'user',
+      username: 'user1',
       cursor: '0',
       taskCount: 0,
       session: AuthSession(
@@ -229,7 +229,7 @@ void main() {
       ),
     );
     await secondSettings.recordServerConnectionSuccess(
-      username: 'user',
+      username: 'user1',
       cursor: '0',
       taskCount: 0,
       session: AuthSession(
@@ -304,7 +304,7 @@ void main() {
     });
 
     await settings.recordServerConnectionSuccess(
-      username: 'user',
+      username: 'user1',
       cursor: '0',
       taskCount: 0,
       session: AuthSession(
@@ -376,7 +376,7 @@ void main() {
     });
 
     await settings.recordServerConnectionSuccess(
-      username: 'user',
+      username: 'user1',
       cursor: '0',
       taskCount: 0,
       session: AuthSession(
@@ -454,7 +454,7 @@ void main() {
     });
 
     await settings.recordServerConnectionSuccess(
-      username: 'user',
+      username: 'user1',
       cursor: '0',
       taskCount: 1,
       session: AuthSession(
@@ -554,7 +554,7 @@ void main() {
     });
 
     await settings.recordServerConnectionSuccess(
-      username: 'user',
+      username: 'user1',
       cursor: '0',
       taskCount: 1,
       session: AuthSession(
@@ -639,7 +639,7 @@ void main() {
     });
 
     await settings.recordServerConnectionSuccess(
-      username: 'user',
+      username: 'user1',
       cursor: '0',
       taskCount: 1,
       session: AuthSession(
@@ -773,7 +773,7 @@ void main() {
     });
 
     await settings.recordServerConnectionSuccess(
-      username: 'user',
+      username: 'user1',
       cursor: '0',
       taskCount: 1,
       session: AuthSession(
@@ -910,7 +910,7 @@ void main() {
     });
 
     await settings.recordServerConnectionSuccess(
-      username: 'user',
+      username: 'user1',
       cursor: '0',
       taskCount: 0,
       session: AuthSession(
@@ -986,7 +986,7 @@ void main() {
     });
 
     await settings.recordServerConnectionSuccess(
-      username: 'user',
+      username: 'user1',
       cursor: '0',
       taskCount: 1,
       session: AuthSession(

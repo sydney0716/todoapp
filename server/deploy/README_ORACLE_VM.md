@@ -91,8 +91,8 @@ DATABASE_URL=postgresql+psycopg://personaltodo:use-a-long-random-password@postgr
 JWT_SECRET=use-a-different-long-random-secret
 ACCESS_TOKEN_MINUTES=15
 REFRESH_TOKEN_DAYS=60
-USER_PASSWORD=use-a-private-account-password
-PARTNER_PASSWORD=use-a-different-private-account-password
+USER1_PASSWORD=use-a-private-account-password
+USER2_PASSWORD=use-a-different-private-account-password
 PERSONAL_TODO_DOMAIN=todo.yourdomain.com
 ```
 

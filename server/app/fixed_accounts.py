@@ -28,15 +28,15 @@ def fixed_accounts(settings: Settings) -> tuple[FixedAccount, FixedAccount]:
     return (
         FixedAccount(
             user_id=DEFAULT_CURRENT_USER_ID,
-            username="user",
-            display_name="User",
-            password=settings.user_password,
+            username="user1",
+            display_name="User 1",
+            password=settings.user1_password,
         ),
         FixedAccount(
             user_id=PARTNER_USER_ID,
-            username="partner",
-            display_name="Partner",
-            password=settings.partner_password,
+            username="user2",
+            display_name="User 2",
+            password=settings.user2_password,
         ),
     )
 

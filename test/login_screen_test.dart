@@ -24,11 +24,11 @@ void main() {
       ),
     );
 
-    expect(find.text('User'), findsOneWidget);
-    expect(find.text('Partner'), findsOneWidget);
+    expect(find.text('User 1'), findsOneWidget);
+    expect(find.text('User 2'), findsOneWidget);
     expect(find.byKey(const ValueKey('login-password-field')), findsNothing);
 
-    await tester.tap(find.text('Partner'));
+    await tester.tap(find.text('User 2'));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('login-password-field')), findsOneWidget);
@@ -41,7 +41,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(submittedAccount?.id, partnerUserId);
-    expect(submittedAccount?.username, 'partner');
+    expect(submittedAccount?.username, 'user2');
     expect(submittedPassword, 'private-password');
   });
 
@@ -59,7 +59,7 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('User'));
+    await tester.tap(find.text('User 1'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('login-submit-button')));
     await tester.pumpAndSettle();
