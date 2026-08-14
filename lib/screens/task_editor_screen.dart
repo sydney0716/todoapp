@@ -11,6 +11,7 @@ import 'shared/delete_background.dart';
 import 'shared/paper_background.dart';
 
 const _customMinuteValues = [1, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
+const _addCategoryAction = '__add_category__';
 const _customHourValues = [
   1,
   2,
@@ -242,6 +243,7 @@ class _TaskEditorScreenState extends State<TaskEditorScreen> {
                   onSelected: (category) {
                     setState(() => _category = category);
                   },
+                  onAddCategory: () => unawaited(_addCategoryFromPicker()),
                 ),
               ),
               const SizedBox(height: 2),
@@ -309,6 +311,22 @@ class _TaskEditorScreenState extends State<TaskEditorScreen> {
     final sortedCategories = categories.toList()
       ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     return sortedCategories;
+  }
+
+  Future<void> _addCategoryFromPicker() async {
+    final category = await _showNewCategoryDialog();
+    if (!mounted || category == null) return;
+    setState(() => _category = category);
+  }
+
+  Future<String?> _showNewCategoryDialog() async {
+    final category = await showDialog<String>(
+      context: context,
+      builder: (context) => const _NewCategoryDialog(),
+    );
+
+    if (category == null || category.isEmpty) return null;
+    return category;
   }
 
   Widget _buildSubTaskRow(int index) {
@@ -750,11 +768,13 @@ class _CategorySelector extends StatelessWidget {
     required this.category,
     required this.categories,
     required this.onSelected,
+    required this.onAddCategory,
   });
 
   final String category;
   final List<String> categories;
   final ValueChanged<String> onSelected;
+  final VoidCallback onAddCategory;
 
   @override
   Widget build(BuildContext context) {
@@ -767,7 +787,13 @@ class _CategorySelector extends StatelessWidget {
       tooltip: strings.selectCategory,
       initialValue: category,
       padding: EdgeInsets.zero,
-      onSelected: onSelected,
+      onSelected: (value) {
+        if (value == _addCategoryAction) {
+          onAddCategory();
+          return;
+        }
+        onSelected(value);
+      },
       itemBuilder: (context) => [
         PopupMenuItem(
           value: '',
@@ -778,6 +804,18 @@ class _CategorySelector extends StatelessWidget {
             value: category,
             child: Text(category),
           ),
+        const PopupMenuDivider(),
+        PopupMenuItem(
+          value: _addCategoryAction,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.add, color: color),
+              const SizedBox(width: 12),
+              Flexible(child: Text(strings.addCategory)),
+            ],
+          ),
+        ),
       ],
       child: Align(
         alignment: Alignment.centerLeft,
@@ -799,6 +837,59 @@ class _CategorySelector extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _NewCategoryDialog extends StatefulWidget {
+  const _NewCategoryDialog();
+
+  @override
+  State<_NewCategoryDialog> createState() => _NewCategoryDialogState();
+}
+
+class _NewCategoryDialogState extends State<_NewCategoryDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    Navigator.of(context).pop(_controller.text.trim());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final strings = AppStrings.of(context);
+
+    return AlertDialog(
+      title: Text(strings.addCategory),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        decoration: InputDecoration(labelText: strings.categoryName),
+        textInputAction: TextInputAction.done,
+        onSubmitted: (_) => _submit(),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(strings.cancel),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: Text(strings.save),
+        ),
+      ],
     );
   }
 }

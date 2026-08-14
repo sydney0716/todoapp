@@ -107,6 +107,43 @@ void main() {
     expect(sharedToCategoryGap, closeTo(privateToCategoryGap, 1));
   });
 
+  testWidgets('category picker can add category while editing a task',
+      (tester) async {
+    final repository = _CapturingTodoRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TaskEditorScreen(
+          repository: repository,
+          settings: SettingsController(),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('No category'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Add category'), findsOneWidget);
+
+    await tester.tap(find.text('Add category'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Category name'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField).last, 'Home');
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Home'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField).first, 'Task with category');
+    await tester.tap(find.widgetWithText(FilledButton, 'Save Task'));
+    await tester.pumpAndSettle();
+
+    expect(repository.savedTask, isNotNull);
+    expect(repository.savedTask!.category, 'Home');
+  });
+
   testWidgets('saving older task as shared keeps shared sync metadata',
       (tester) async {
     final repository = _CapturingTodoRepository();

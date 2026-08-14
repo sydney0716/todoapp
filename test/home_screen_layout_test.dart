@@ -1,12 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:personaltodo/local_todo_repository.dart';
 import 'package:personaltodo/models.dart';
 import 'package:personaltodo/screens/home_screen.dart';
-import 'package:personaltodo/settings_controller.dart';
 import 'package:personaltodo/theme.dart';
-import 'package:personaltodo/todo_sync_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -216,79 +213,4 @@ void main() {
     expect(completedTop, greaterThan(trashTop));
     expect(completedTop, lessThan(settingsTop));
   });
-
-  testWidgets('home sync banner opens details for failed queue',
-      (tester) async {
-    await tester.binding.setSurfaceSize(const Size(390, 780));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-
-    final repository = _FakeHomeRepository(
-      SyncQueueSummary(
-        pendingCount: 1,
-        failedCount: 1,
-        nextRetryAt: DateTime.now().add(const Duration(hours: 1)),
-      ),
-    );
-    final settings = SettingsController()
-      ..serverConnectionStatus = ServerConnectionStatus.connected
-      ..refreshToken = 'refresh-token'
-      ..lastSyncAt = DateTime(2026, 6, 5, 12);
-
-    await tester.pumpWidget(
-      MaterialApp(
-        theme: buildLightTheme(),
-        home: HomeScreen(
-          repository: repository,
-          settings: settings,
-          syncRunner: () async {
-            return const TodoSyncResult(
-              pushedCount: 0,
-              pulledCount: 0,
-              failedCount: 0,
-              cursor: '0',
-            );
-          },
-        ),
-      ),
-    );
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 50));
-
-    expect(find.textContaining('Retry'), findsOneWidget);
-    await tester.tap(find.textContaining('Retry'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 400));
-
-    expect(find.text('Sync details'), findsOneWidget);
-    expect(find.text('Pending changes'), findsOneWidget);
-    expect(find.text('Failed changes'), findsOneWidget);
-    expect(find.text('Next retry'), findsOneWidget);
-    await tester.pumpWidget(const SizedBox.shrink());
-  });
-}
-
-class _FakeHomeRepository extends LocalTodoRepository {
-  _FakeHomeRepository(this.summary);
-
-  final SyncQueueSummary summary;
-
-  @override
-  List<TodoTask> get tasks => const [];
-
-  @override
-  List<TodoTask> get trashTasks => const [];
-
-  @override
-  Future<SyncQueueSummary> getPendingSyncSummary() async {
-    return summary;
-  }
-
-  @override
-  Future<List<SyncQueueItem>> getPendingSyncQueue({
-    int? limit,
-    DateTime? now,
-    Set<String>? entityTypes,
-  }) async {
-    return const [];
-  }
 }

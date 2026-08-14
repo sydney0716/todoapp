@@ -85,6 +85,7 @@ class AppStrings {
       : 'Add a task to start filling the calendar and list.';
   String get noCategory => _ko ? '카테고리 없음' : 'No category';
   String get newCategory => _ko ? '새 카테고리' : 'New category';
+  String get addCategory => _ko ? '카테고리 추가하기' : 'Add category';
   String get categoryName => _ko ? '카테고리 이름' : 'Category name';
   String get done => _ko ? '완료' : 'Done';
   String get completed => _ko ? '완료됨' : 'Completed';
@@ -259,8 +260,8 @@ class AppStrings {
       return 'Sync completed. Sent $pushed, received $pulled.';
     }
     if (snapshotReconciled) {
-      if (_ko) return '동기화 완료. 서버 목록을 확인했습니다.';
-      return 'Sync completed. Server list checked.';
+      if (_ko) return '동기화 완료';
+      return 'Sync completed.';
     }
     if (_ko) return '동기화 완료. 변경 없음.';
     return 'Sync completed. No changes.';

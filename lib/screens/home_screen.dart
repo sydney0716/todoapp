@@ -60,11 +60,6 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _autoSyncInFlight = false;
   bool _autoSyncAgainAfterCurrent = false;
   bool _pendingAutoPull = false;
-  SyncQueueSummary _syncQueueSummary = const SyncQueueSummary(
-    pendingCount: 0,
-    failedCount: 0,
-  );
-  int _syncQueueSummaryRequestId = 0;
   Timer? _autoSyncTimer;
   final Set<int> _selectedTaskIds = {};
 
@@ -72,7 +67,6 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     widget.repository.addListener(_handleRepositoryChangedForSync);
-    unawaited(_refreshSyncQueueSummary());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _scheduleAutoSync(
@@ -136,17 +130,6 @@ class _HomeScreenState extends State<HomeScreen> {
                             showTaskSelection ? null : _handleMenuAction,
                         onDateSelected: (date) =>
                             unawaited(_openTaskEditor(initialDueDate: date)),
-                      ),
-                      _SyncStatusBanner(
-                        connectionStatus:
-                            widget.settings.serverConnectionStatus,
-                        hasRefreshToken:
-                            widget.settings.refreshToken.isNotEmpty,
-                        lastSyncAt: widget.settings.lastSyncAt,
-                        queueSummary: _syncQueueSummary,
-                        syncing: _autoSyncInFlight,
-                        timeFormat: widget.settings.timeFormat,
-                        onPressed: () => unawaited(_showSyncStatusDetails()),
                       ),
                       Expanded(
                         child: RefreshIndicator(
@@ -565,143 +548,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _refreshSyncQueueSummary() async {
-    final requestId = ++_syncQueueSummaryRequestId;
-    try {
-      final summary = await widget.repository.getPendingSyncSummary();
-      if (!mounted || requestId != _syncQueueSummaryRequestId) return;
-      setState(() => _syncQueueSummary = summary);
-    } catch (_) {
-      return;
-    }
-  }
-
-  Future<void> _showSyncStatusDetails() async {
-    unawaited(_refreshSyncQueueSummary());
-    if (!mounted) return;
-
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetContext) {
-        final strings = AppStrings.of(sheetContext);
-        final lastSyncAt = widget.settings.lastSyncAt;
-        final nextRetryAt = _syncQueueSummary.nextRetryAt;
-
-        return SafeArea(
-          child: SingleChildScrollView(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ListTile(
-                    leading: const Icon(Icons.cloud_sync_outlined),
-                    title: Text(strings.syncDetails),
-                    subtitle: Text(_syncStatusDetailText(strings)),
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.schedule_outlined),
-                    title: Text(strings.lastSync),
-                    subtitle: Text(
-                      lastSyncAt == null
-                          ? strings.neverSynced
-                          : _formatSyncDateTime(lastSyncAt, strings),
-                    ),
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.pending_actions_outlined),
-                    title: Text(strings.pendingChanges),
-                    trailing: Text(
-                      strings.syncItemCount(_syncQueueSummary.pendingCount),
-                    ),
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.error_outline),
-                    title: Text(strings.failedChanges),
-                    trailing: Text(
-                      strings.syncItemCount(_syncQueueSummary.failedCount),
-                    ),
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.update_outlined),
-                    title: Text(strings.nextRetry),
-                    subtitle: Text(
-                      nextRetryAt == null
-                          ? strings.retryReady
-                          : _formatSyncDateTime(nextRetryAt, strings),
-                    ),
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.dns_outlined),
-                    title: Text(strings.serverStatus),
-                    subtitle: Text(
-                      strings.serverConnectionStatusLabel(
-                        widget.settings.serverConnectionStatus,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: FilledButton.icon(
-                          onPressed: () {
-                            Navigator.of(sheetContext).pop();
-                            unawaited(_manualSync());
-                          },
-                          icon: const Icon(Icons.sync),
-                          label: Text(strings.syncNow),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      IconButton.filledTonal(
-                        tooltip: strings.settings,
-                        onPressed: () {
-                          Navigator.of(sheetContext).pop();
-                          _handleMenuAction('settings');
-                        },
-                        icon: const Icon(Icons.settings_outlined),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  String _syncStatusDetailText(AppStrings strings) {
-    if (_autoSyncInFlight) return strings.syncingNow;
-    if (!_canAutoSync) return strings.syncOffline;
-    if (_syncQueueSummary.failedCount > 0) {
-      final nextRetryAt = _syncQueueSummary.nextRetryAt;
-      if (nextRetryAt != null && nextRetryAt.isAfter(DateTime.now())) {
-        return strings.retryAt(_formatSyncDateTime(nextRetryAt, strings));
-      }
-      return strings.failedSyncCount(_syncQueueSummary.failedCount);
-    }
-    if (_syncQueueSummary.pendingCount > 0) {
-      return strings.pendingSyncCount(_syncQueueSummary.pendingCount);
-    }
-    final lastSyncAt = widget.settings.lastSyncAt;
-    if (lastSyncAt == null) return strings.syncReady;
-    return strings.lastSyncAt(_formatSyncDateTime(lastSyncAt, strings));
-  }
-
-  String _formatSyncDateTime(DateTime date, AppStrings strings) {
-    final dateText = formatEditorDueDate(date, language: strings.language);
-    final timeText = formatTimeOfDay(
-      date,
-      widget.settings.timeFormat,
-      language: strings.language,
-    );
-    return '$dateText $timeText';
-  }
-
   void _setSyncInFlight(bool value) {
     if (_autoSyncInFlight == value) return;
     if (!mounted) {
@@ -726,7 +572,6 @@ class _HomeScreenState extends State<HomeScreen> {
     _setSyncInFlight(true);
     try {
       await widget.repository.retryFailedSyncQueueNow();
-      await _refreshSyncQueueSummary();
       final result = await _manualSyncRunner();
       if (!mounted) return;
       _showMessage(
@@ -742,7 +587,6 @@ class _HomeScreenState extends State<HomeScreen> {
       _showMessage(_syncErrorMessage(error));
     } finally {
       _setSyncInFlight(false);
-      unawaited(_refreshSyncQueueSummary());
       if (_autoSyncAgainAfterCurrent && mounted) {
         _autoSyncAgainAfterCurrent = false;
         _scheduleAutoSync(delay: _autoSyncEditDebounce);
@@ -896,7 +740,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _handleRepositoryChangedForSync() {
-    unawaited(_refreshSyncQueueSummary());
     if (!_canAutoSync) return;
     if (_autoSyncInFlight) {
       _autoSyncAgainAfterCurrent = true;
@@ -937,199 +780,11 @@ class _HomeScreenState extends State<HomeScreen> {
       // Foreground auto sync is best-effort; manual sync still surfaces errors.
     } finally {
       _setSyncInFlight(false);
-      unawaited(_refreshSyncQueueSummary());
       if (_autoSyncAgainAfterCurrent && mounted) {
         _autoSyncAgainAfterCurrent = false;
         _scheduleAutoSync(delay: _autoSyncEditDebounce);
       }
     }
-  }
-}
-
-class _SyncStatusBanner extends StatelessWidget {
-  const _SyncStatusBanner({
-    required this.connectionStatus,
-    required this.hasRefreshToken,
-    required this.lastSyncAt,
-    required this.queueSummary,
-    required this.syncing,
-    required this.timeFormat,
-    required this.onPressed,
-  });
-
-  final ServerConnectionStatus connectionStatus;
-  final bool hasRefreshToken;
-  final DateTime? lastSyncAt;
-  final SyncQueueSummary queueSummary;
-  final bool syncing;
-  final AppTimeFormat timeFormat;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final strings = AppStrings.of(context);
-    final visual = _SyncStatusVisual.resolve(
-      strings: strings,
-      connectionStatus: connectionStatus,
-      hasRefreshToken: hasRefreshToken,
-      lastSyncAt: lastSyncAt,
-      queueSummary: queueSummary,
-      syncing: syncing,
-      timeFormat: timeFormat,
-      colorScheme: theme.colorScheme,
-    );
-
-    return Material(
-      color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.72),
-      child: InkWell(
-        onTap: onPressed,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: Row(
-            children: [
-              Icon(visual.icon, size: 20, color: visual.color),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      visual.label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.labelLarge?.copyWith(
-                        color: visual.color,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    Text(
-                      visual.detail,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Tooltip(
-                message: strings.openSyncDetails,
-                child: Icon(
-                  Icons.chevron_right,
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SyncStatusVisual {
-  const _SyncStatusVisual({
-    required this.icon,
-    required this.label,
-    required this.detail,
-    required this.color,
-  });
-
-  final IconData icon;
-  final String label;
-  final String detail;
-  final Color color;
-
-  static _SyncStatusVisual resolve({
-    required AppStrings strings,
-    required ServerConnectionStatus connectionStatus,
-    required bool hasRefreshToken,
-    required DateTime? lastSyncAt,
-    required SyncQueueSummary queueSummary,
-    required bool syncing,
-    required AppTimeFormat timeFormat,
-    required ColorScheme colorScheme,
-  }) {
-    final connected =
-        connectionStatus == ServerConnectionStatus.connected && hasRefreshToken;
-    if (syncing) {
-      return _SyncStatusVisual(
-        icon: Icons.sync,
-        label: strings.syncing,
-        detail: strings.syncingNow,
-        color: colorScheme.primary,
-      );
-    }
-    if (!connected) {
-      return _SyncStatusVisual(
-        icon: Icons.cloud_off_outlined,
-        label: strings.syncOffline,
-        detail: strings.serverConnectionStatusLabel(connectionStatus),
-        color: connectionStatus == ServerConnectionStatus.failed
-            ? colorScheme.error
-            : colorScheme.onSurfaceVariant,
-      );
-    }
-    if (queueSummary.failedCount > 0) {
-      final nextRetryAt = queueSummary.nextRetryAt;
-      final retryWaiting =
-          nextRetryAt != null && nextRetryAt.isAfter(DateTime.now());
-      return _SyncStatusVisual(
-        icon: retryWaiting ? Icons.update_outlined : Icons.error_outline,
-        label: retryWaiting
-            ? strings.retryAt(_formatSyncDateTime(
-                nextRetryAt,
-                strings,
-                timeFormat,
-              ))
-            : strings.failedSyncCount(queueSummary.failedCount),
-        detail: retryWaiting
-            ? strings.failedSyncCount(queueSummary.failedCount)
-            : strings.retryReady,
-        color: colorScheme.error,
-      );
-    }
-    if (queueSummary.pendingCount > 0) {
-      return _SyncStatusVisual(
-        icon: Icons.cloud_upload_outlined,
-        label: strings.pendingSyncCount(queueSummary.pendingCount),
-        detail: strings.syncReady,
-        color: colorScheme.tertiary,
-      );
-    }
-    if (lastSyncAt == null) {
-      return _SyncStatusVisual(
-        icon: Icons.cloud_queue_outlined,
-        label: strings.syncReady,
-        detail: strings.neverSynced,
-        color: colorScheme.primary,
-      );
-    }
-    return _SyncStatusVisual(
-      icon: Icons.cloud_done_outlined,
-      label: strings.syncComplete,
-      detail: strings.lastSyncAt(
-        _formatSyncDateTime(lastSyncAt, strings, timeFormat),
-      ),
-      color: colorScheme.primary,
-    );
-  }
-
-  static String _formatSyncDateTime(
-    DateTime date,
-    AppStrings strings,
-    AppTimeFormat timeFormat,
-  ) {
-    final dateText = formatEditorDueDate(date, language: strings.language);
-    final timeText = formatTimeOfDay(
-      date,
-      timeFormat,
-      language: strings.language,
-    );
-    return '$dateText $timeText';
   }
 }
 
