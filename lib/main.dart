@@ -53,21 +53,27 @@ class PersonalTodoApp extends StatefulWidget {
     super.key,
     required this.repository,
     required this.settings,
+    this.periodicSyncRunner,
   });
 
   final LocalTodoRepository repository;
   final SettingsController settings;
+  final TodoSyncRunner? periodicSyncRunner;
 
   @override
   State<PersonalTodoApp> createState() => _PersonalTodoAppState();
 }
 
 class _PersonalTodoAppState extends State<PersonalTodoApp> {
+  static const _periodicAutoSyncInterval = Duration(hours: 6);
+
   final _navigatorKey = GlobalKey<NavigatorState>();
   late final WidgetsBindingObserver _lifecycleObserver;
+  Timer? _periodicAutoSyncTimer;
   bool _nativeWidgetSyncInFlight = false;
   bool _nativeWidgetSyncAgainAfterCurrent = false;
   bool _nativeWidgetStartupComplete = false;
+  bool _periodicAutoSyncInFlight = false;
 
   @override
   void initState() {
@@ -78,13 +84,10 @@ class _PersonalTodoAppState extends State<PersonalTodoApp> {
     widget.repository.addListener(_syncTaskNotifications);
     NativeWidgetBridge.setActionHandler(_handleNativeWidgetAction);
     _lifecycleObserver = _AppLifecycleObserver(
-      onResumed: () => unawaited(
-        widget.repository.reload(
-          refreshNativeWidget: _nativeWidgetStartupComplete,
-        ),
-      ),
+      onResumed: () => unawaited(_handleAppResumed()),
     );
     WidgetsBinding.instance.addObserver(_lifecycleObserver);
+    _startPeriodicAutoSyncTimer();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(_syncNativeWidgetStartup());
       _syncTaskNotifications();
@@ -97,7 +100,52 @@ class _PersonalTodoAppState extends State<PersonalTodoApp> {
     widget.settings.removeListener(_syncTaskNotifications);
     widget.repository.removeListener(_syncTaskNotifications);
     WidgetsBinding.instance.removeObserver(_lifecycleObserver);
+    _periodicAutoSyncTimer?.cancel();
     super.dispose();
+  }
+
+  void _startPeriodicAutoSyncTimer() {
+    _periodicAutoSyncTimer?.cancel();
+    _periodicAutoSyncTimer = Timer.periodic(
+      _periodicAutoSyncInterval,
+      (_) => unawaited(_syncIfPeriodicIntervalElapsed()),
+    );
+  }
+
+  Future<void> _handleAppResumed() async {
+    await widget.repository.reload(
+      refreshNativeWidget: _nativeWidgetStartupComplete,
+    );
+    if (!mounted) return;
+    await _syncIfPeriodicIntervalElapsed();
+  }
+
+  Future<void> _syncIfPeriodicIntervalElapsed() async {
+    if (!_canPeriodicAutoSync || _periodicAutoSyncInFlight) return;
+
+    final lastSyncAt = widget.settings.lastSyncAt;
+    final now = DateTime.now();
+    if (lastSyncAt != null &&
+        now.difference(lastSyncAt) < _periodicAutoSyncInterval) {
+      return;
+    }
+
+    _periodicAutoSyncInFlight = true;
+    try {
+      await _periodicSyncRunner();
+    } catch (_) {
+      // Periodic sync is silent; manual refresh still surfaces errors.
+    } finally {
+      _periodicAutoSyncInFlight = false;
+    }
+  }
+
+  TodoSyncRunner get _periodicSyncRunner {
+    return widget.periodicSyncRunner ??
+        () => TodoSyncService(
+              repository: widget.repository,
+              settings: widget.settings,
+            ).syncNow(reconcileSnapshot: true);
   }
 
   void _syncCurrentUser() {
@@ -237,6 +285,10 @@ class _PersonalTodoAppState extends State<PersonalTodoApp> {
   }
 
   bool get _canSyncNativeWidgetMutation {
+    return _canPeriodicAutoSync;
+  }
+
+  bool get _canPeriodicAutoSync {
     return _hasStoredSession &&
         widget.settings.serverConnectionStatus ==
             ServerConnectionStatus.connected &&
