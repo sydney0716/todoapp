@@ -170,7 +170,7 @@ def test_task_push_then_pull_round_trip(client: TestClient) -> None:
     assert push_payload["cursor"] == "1"
     assert push_payload["rejected"] == []
     assert [record["id"] for record in push_payload["accepted"]] == [str(TASK_ID)]
-    assert _parse_json_datetime(push_payload["accepted"][0]["updated_at"]) == (
+    assert _parse_json_datetime(push_payload["accepted"][0]["updated_at"]) != (
         _parse_json_datetime(record["updated_at"])
     )
 
@@ -202,6 +202,37 @@ def test_task_push_then_pull_round_trip(client: TestClient) -> None:
     assert other_pull_payload["changes"][0]["origin_device_id"] == auth["device_id"]
     assert "title" in other_pull_payload["changes"][0]["changed_task_fields"]
     assert other_pull_payload["changes"][0]["changed_subtask_ids"] == []
+
+
+def test_server_assigns_version_instead_of_trusting_client_version(
+    client: TestClient,
+    fake_db: FakeSession,
+) -> None:
+    auth = _login(client)
+    fake_db.add(_task(title="Server task", version=5))
+    record = _task_record(title="Client title", version=99)
+
+    response = client.post(
+        "/sync/tasks",
+        headers={"Authorization": f"Bearer {auth['access_token']}"},
+        json={
+            "device_id": auth["device_id"],
+            "changes": [
+                {
+                    "operation": "upsert",
+                    "record": record,
+                    "changed_task_fields": ["title"],
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["rejected"] == []
+    assert payload["accepted"][0]["version"] == 6
+    assert fake_db.tasks[TASK_ID].version == 6
+    assert fake_db.tasks[TASK_ID].title == "Client title"
 
 
 def test_shared_both_completion_round_trips_to_partner(client: TestClient) -> None:
@@ -623,11 +654,11 @@ def test_same_version_task_change_is_accepted(
     assert payload["rejected"] == []
     assert payload["accepted"][0]["title"] == "Newer task title"
     assert fake_db.tasks[TASK_ID].title == "Newer task title"
-    assert fake_db.tasks[TASK_ID].version == 2
+    assert fake_db.tasks[TASK_ID].version == 3
     assert fake_db.events[0].changed_task_fields == ["title"]
 
 
-def test_stale_same_field_task_change_is_accepted_without_event(
+def test_client_clock_does_not_make_same_version_change_stale(
     client: TestClient,
     fake_db: FakeSession,
 ) -> None:
@@ -658,11 +689,11 @@ def test_stale_same_field_task_change_is_accepted_without_event(
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["cursor"] == "0"
     assert payload["rejected"] == []
-    assert payload["accepted"][0]["title"] == "Server canonical title"
-    assert fake_db.tasks[TASK_ID].title == "Server canonical title"
-    assert fake_db.events == []
+    assert payload["accepted"][0]["title"] == "Older task title"
+    assert fake_db.tasks[TASK_ID].title == "Older task title"
+    assert fake_db.tasks[TASK_ID].version == 3
+    assert fake_db.events[0].changed_task_fields == ["title"]
 
 
 def test_same_field_concurrent_edits_latest_accepted_is_canonical(
@@ -714,8 +745,83 @@ def test_same_field_concurrent_edits_latest_accepted_is_canonical(
     assert second_response.status_code == 200
     assert second_response.json()["rejected"] == []
     assert fake_db.tasks[TASK_ID].title == "Second accepted title"
-    assert fake_db.tasks[TASK_ID].version == 2
+    assert fake_db.tasks[TASK_ID].version == 3
     assert len(fake_db.events) == 2
+
+
+def test_deleted_parent_ignores_stale_field_and_subtask_edits(
+    client: TestClient,
+    fake_db: FakeSession,
+) -> None:
+    auth = _login(client)
+    deleted_at = datetime(2026, 1, 1, 12, 10, tzinfo=UTC)
+    fake_db.add(_task(deleted_at=deleted_at, version=3))
+    fake_db.add(_subtask(title="Server subtask", version=3))
+    record = _task_record(title="Stale task title", version=4)
+    record["subtasks"] = [
+        _subtask_record(title="Stale subtask title", version=4),
+    ]
+
+    response = client.post(
+        "/sync/tasks",
+        headers={"Authorization": f"Bearer {auth['access_token']}"},
+        json={
+            "device_id": auth["device_id"],
+            "changes": [
+                {
+                    "operation": "upsert",
+                    "record": record,
+                    "changed_task_fields": ["title"],
+                    "changed_subtask_ids": [str(SUBTASK_ID)],
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["rejected"] == []
+    assert payload["accepted"][0]["title"] == "Server task"
+    assert payload["accepted"][0]["deleted_at"] is not None
+    assert payload["accepted"][0]["subtasks"][0]["title"] == "Server subtask"
+    assert fake_db.tasks[TASK_ID].title == "Server task"
+    assert fake_db.tasks[TASK_ID].deleted_at == deleted_at
+    assert fake_db.subtasks[SUBTASK_ID].title == "Server subtask"
+    assert fake_db.events == []
+
+
+def test_restore_can_clear_server_tombstone(
+    client: TestClient,
+    fake_db: FakeSession,
+) -> None:
+    auth = _login(client)
+    deleted_at = datetime(2026, 1, 1, 12, 10, tzinfo=UTC)
+    fake_db.add(_task(deleted_at=deleted_at, version=3))
+    record = _task_record(version=4)
+
+    response = client.post(
+        "/sync/tasks",
+        headers={"Authorization": f"Bearer {auth['access_token']}"},
+        json={
+            "device_id": auth["device_id"],
+            "changes": [
+                {
+                    "operation": "upsert",
+                    "record": record,
+                    "changed_task_fields": ["deleted_at"],
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["rejected"] == []
+    assert payload["accepted"][0]["deleted_at"] is None
+    assert payload["accepted"][0]["version"] == 4
+    assert fake_db.tasks[TASK_ID].deleted_at is None
+    assert fake_db.tasks[TASK_ID].version == 4
+    assert fake_db.events[0].changed_task_fields == ["deleted_at"]
 
 
 def test_shared_to_private_emits_remove_event_for_user_losing_visibility(

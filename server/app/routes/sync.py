@@ -354,7 +354,25 @@ def _apply_task_change(
         requested_fields=change.changed_task_fields,
     )
     changed_task_field_set = set(changed_task_fields)
-    changed_subtask_ids = _normalized_changed_subtask_ids(existing, change)
+    incoming_delete = "deleted_at" in changed_task_field_set and deleted_at is not None
+    incoming_restore = "deleted_at" in changed_task_field_set and deleted_at is None
+    existing_deleted = existing is not None and existing.deleted_at is not None
+    stale_child_or_field_change_for_deleted_task = (
+        existing_deleted and not incoming_delete and not incoming_restore
+    )
+    if stale_child_or_field_change_for_deleted_task:
+        changed_task_fields = []
+        changed_task_field_set = set()
+
+    if incoming_delete:
+        changed_task_fields = ["deleted_at"]
+        changed_task_field_set = {"deleted_at"}
+
+    changed_subtask_ids = (
+        []
+        if stale_child_or_field_change_for_deleted_task or incoming_delete
+        else _normalized_changed_subtask_ids(existing, change)
+    )
     task = existing
     if task is None:
         task = Task(sync_id=record.id)
@@ -383,6 +401,7 @@ def _apply_task_change(
         if subtask_record.id not in changed_subtask_id_set:
             continue
         subtask = existing_subtasks.get(subtask_record.id)
+        is_new_subtask = subtask is None
         if subtask is None:
             subtask = Subtask(
                 sync_id=subtask_record.id,
@@ -390,7 +409,10 @@ def _apply_task_change(
                 created_at=accepted_at,
             )
             db.add(subtask)
-        elif not _incoming_subtask_wins(subtask, subtask_record):
+        elif (
+            change.changed_subtask_ids is None
+            and not _legacy_incoming_subtask_wins(subtask, subtask_record)
+        ):
             continue
 
         subtask.task_sync_id = record.id
@@ -398,8 +420,8 @@ def _apply_task_change(
         subtask.is_completed = subtask_record.is_completed
         subtask.due_at = subtask_record.due_at
         subtask.position = subtask_record.position
-        subtask.updated_at = subtask_record.updated_at
-        subtask.version = subtask_record.version
+        subtask.updated_at = accepted_at
+        subtask.version = 1 if is_new_subtask else subtask.version + 1
         subtask.deleted_at = (
             accepted_at if subtask_record.deleted_at is not None else None
         )
@@ -425,15 +447,18 @@ def _normalized_changed_task_fields(
         return list(_TASK_FIELD_NAMES)
     if requested_fields is not None:
         changed_fields = [
-            field for field in requested_fields if field in _TASK_FIELD_NAMES
+            field
+            for field in requested_fields
+            if field in _TASK_FIELD_NAMES
+            and _task_field_changed(existing, record, field, deleted_at=deleted_at)
         ]
-        return changed_fields if _incoming_task_wins(existing, record) else []
+        return changed_fields
 
     changed_fields: list[str] = []
     for field_name in _TASK_FIELD_NAMES:
         if _task_field_changed(existing, record, field_name, deleted_at=deleted_at):
             changed_fields.append(field_name)
-    return changed_fields if _incoming_task_wins(existing, record) else []
+    return changed_fields if _legacy_incoming_task_wins(existing, record) else []
 
 
 def _normalized_changed_subtask_ids(
@@ -447,22 +472,16 @@ def _normalized_changed_subtask_ids(
     return [subtask.id for subtask in change.record.subtasks]
 
 
-def _incoming_task_wins(existing: Task, record: TaskRecord) -> bool:
+def _legacy_incoming_task_wins(existing: Task, record: TaskRecord) -> bool:
     if record.version > existing.version:
         return True
-    return (
-        record.version == existing.version
-        and record.updated_at > existing.updated_at
-    )
+    return record.version == existing.version
 
 
-def _incoming_subtask_wins(existing: Subtask, record: SubtaskRecord) -> bool:
+def _legacy_incoming_subtask_wins(existing: Subtask, record: SubtaskRecord) -> bool:
     if record.version > existing.version:
         return True
-    return (
-        record.version == existing.version
-        and record.updated_at > existing.updated_at
-    )
+    return record.version == existing.version
 
 
 def _task_field_changed(
@@ -545,8 +564,8 @@ def _apply_task_fields(
         task.deleted_at = server_deleted_at
         task.purge_after = _server_purge_after(record, server_deleted_at)
     task.updated_by_user_id = record.updated_by_user_id
-    task.updated_at = record.updated_at
-    task.version = record.version
+    task.updated_at = accepted_at
+    task.version = 1 if is_new else task.version + 1
     task.device_id = record.device_id
     task.server_updated_at = accepted_at
 
