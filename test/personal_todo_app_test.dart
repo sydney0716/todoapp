@@ -1,0 +1,282 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:personaltodo/local_todo_repository.dart';
+import 'package:personaltodo/main.dart';
+import 'package:personaltodo/models.dart';
+import 'package:personaltodo/screens/login_screen.dart';
+import 'package:personaltodo/settings_controller.dart';
+import 'package:personaltodo/settings_store.dart';
+import 'package:personaltodo/todo_sync_service.dart';
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() {
+    // These UI tests have no queued native widget edits.
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(const MethodChannel('home_widget'),
+            (call) async => call.method == 'getWidgetData' ? null : true);
+  });
+  tearDown(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(const MethodChannel('home_widget'), null);
+  });
+
+  testWidgets('Mac uses two-hour polls behind windows and pulls on resume',
+      (tester) async {
+    var syncCount = 0;
+    await tester.pumpWidget(PersonalTodoApp(
+      repository: _FakeAppRepository(),
+      settings: _connectedSettings(),
+      periodicSyncRunner: () async {
+        syncCount++;
+        return const TodoSyncResult(
+          pushedCount: 0,
+          pulledCount: 0,
+          failedCount: 0,
+          cursor: 'cursor',
+        );
+      },
+    ));
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(syncCount, 1);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump(const Duration(minutes: 119));
+    expect(syncCount, 1);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    await tester.pump(const Duration(minutes: 1));
+    expect(syncCount, 2);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    expect(syncCount, 3);
+    await tester.pump(const Duration(seconds: 30));
+    expect(syncCount, 4);
+    await tester.pumpWidget(const SizedBox.shrink());
+  }, variant: TargetPlatformVariant({TargetPlatform.macOS}));
+
+  testWidgets('leaving a phone uploads a queued edit before its debounce fires',
+      (tester) async {
+    final repository = _FakeAppRepository(queuedItems: [
+      SyncQueueItem(
+        id: 1,
+        entityType: 'task',
+        entitySyncId: 'task',
+        operation: 'upsert',
+        attemptCount: 0,
+        createdAt: DateTime.now(),
+        nextAttemptAt: DateTime.now(),
+      ),
+    ]);
+    var syncCount = 0;
+    await tester.pumpWidget(PersonalTodoApp(
+      repository: repository,
+      settings: _connectedSettings(),
+      periodicSyncRunner: () async {
+        syncCount++;
+        repository.queuedItems = [];
+        return const TodoSyncResult(
+          pushedCount: 1,
+          pulledCount: 0,
+          failedCount: 0,
+          cursor: 'cursor',
+        );
+      },
+    ));
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    await tester.pump();
+    expect(syncCount, 1);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.pump(const Duration(minutes: 1));
+    expect(syncCount, 1);
+    expect(repository.queuedItems, isEmpty);
+    await tester.pumpWidget(const SizedBox.shrink());
+  }, variant: TargetPlatformVariant({TargetPlatform.android}));
+
+  testWidgets('pulls on resume after a long absence', (tester) async {
+    final repository = _FakeAppRepository();
+    final settings = _connectedSettings()
+      ..lastSyncAt = DateTime.now().subtract(const Duration(hours: 7));
+    var syncCount = 0;
+
+    await tester.pumpWidget(
+      PersonalTodoApp(
+        repository: repository,
+        settings: settings,
+        periodicSyncRunner: () async {
+          syncCount += 1;
+          return const TodoSyncResult(
+            pushedCount: 0,
+            pulledCount: 0,
+            failedCount: 0,
+            cursor: 'cursor',
+          );
+        },
+      ),
+    );
+    await tester.pump();
+
+    expect(syncCount, 0);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    await tester.pump();
+
+    expect(repository.reloadCount, 1);
+    expect(syncCount, 1);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  testWidgets('pulls on resume even when the last sync was recent',
+      (tester) async {
+    final repository = _FakeAppRepository();
+    final settings = _connectedSettings()
+      ..lastSyncAt = DateTime.now().subtract(const Duration(hours: 1));
+    var syncCount = 0;
+
+    await tester.pumpWidget(
+      PersonalTodoApp(
+        repository: repository,
+        settings: settings,
+        periodicSyncRunner: () async {
+          syncCount += 1;
+          return const TodoSyncResult(
+            pushedCount: 0,
+            pulledCount: 0,
+            failedCount: 0,
+            cursor: 'cursor',
+          );
+        },
+      ),
+    );
+    await tester.pump();
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    await tester.pump();
+
+    expect(repository.reloadCount, 1);
+    expect(syncCount, 1);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
+  for (final expiredAtStartup in [false, true]) {
+    testWidgets(
+        'opens one same-account login when session expires ${expiredAtStartup ? 'before startup' : 'while open'}',
+        (tester) async {
+      final task = TodoTask(
+        id: 1,
+        syncId: 'offline-task',
+        ownerUserId: partnerUserId,
+        title: 'Offline task',
+      );
+      final queuedChange = SyncQueueItem(
+        id: 1,
+        entityType: 'task',
+        entitySyncId: task.syncId,
+        operation: 'upsert',
+        attemptCount: 0,
+        createdAt: DateTime.now(),
+        nextAttemptAt: DateTime.now(),
+      );
+      final repository = _FakeAppRepository(
+        cachedTasks: [task],
+        queuedItems: [queuedChange],
+      );
+      final settings = _connectedSettings(store: _FakeSettingsStore())
+        ..currentUserId = partnerUserId;
+      if (expiredAtStartup) await settings.requireReauthentication();
+
+      await tester.pumpWidget(PersonalTodoApp(
+        repository: repository,
+        settings: settings,
+        periodicSyncRunner: () async => const TodoSyncResult(
+          pushedCount: 0,
+          pulledCount: 0,
+          failedCount: 0,
+          cursor: 'cursor',
+        ),
+      ));
+      await tester.pumpAndSettle();
+      if (!expiredAtStartup) {
+        expect(find.byType(LoginScreen), findsNothing);
+        await settings.requireReauthentication();
+        await tester.pumpAndSettle();
+      }
+
+      expect(find.byType(LoginScreen), findsOneWidget);
+      expect(find.text('User 2'), findsOneWidget);
+      expect(find.text('User 1'), findsNothing);
+
+      await settings.recordServerConnectionFailure();
+      await tester.pumpAndSettle();
+      Navigator.of(tester.element(find.byType(LoginScreen))).pop();
+      await tester.pumpAndSettle();
+
+      expect(find.byType(LoginScreen), findsNothing);
+      expect(find.text(task.title), findsOneWidget);
+      expect(repository.tasks, [task]);
+      expect(await repository.getPendingSyncQueue(), [queuedChange]);
+      expect(settings.initialLoginCompleted, isTrue);
+      expect(settings.currentUserId, partnerUserId);
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
+  }
+}
+
+SettingsController _connectedSettings({SettingsStore? store}) {
+  return _FakeAppSettings(store: store)
+    ..initialLoginCompleted = true
+    ..serverConnectionStatus = ServerConnectionStatus.connected
+    ..refreshToken = 'refresh-token';
+}
+
+class _FakeAppSettings extends SettingsController {
+  _FakeAppSettings({super.store});
+
+  @override
+  Future<void> reload() async {}
+}
+
+class _FakeAppRepository extends LocalTodoRepository {
+  _FakeAppRepository({
+    this.cachedTasks = const [],
+    this.queuedItems = const [],
+  });
+
+  int reloadCount = 0;
+  final List<TodoTask> cachedTasks;
+  List<SyncQueueItem> queuedItems;
+
+  @override
+  Future<int> retryFailedSyncQueueNow() async => 0;
+
+  @override
+  String get deviceId => 'test-device';
+
+  @override
+  List<TodoTask> get tasks => cachedTasks;
+
+  @override
+  List<TodoTask> get trashTasks => const [];
+
+  @override
+  Future<List<SyncQueueItem>> getPendingSyncQueue(
+          {int? limit, DateTime? now, Set<String>? entityTypes}) async =>
+      queuedItems;
+
+  @override
+  Future<void> reload({bool refreshNativeWidget = true}) async {
+    reloadCount += 1;
+    notifyListeners();
+  }
+}
+
+class _FakeSettingsStore extends SettingsStore {
+  @override
+  Future<void> setString(String key, String value) async {}
+}

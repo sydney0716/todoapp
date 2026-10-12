@@ -1,0 +1,19 @@
+{$PERSONAL_TODO_DOMAIN} {
+	encode gzip zstd
+
+	redir /app /app/ 308
+	handle_path /app/* {
+		root * /srv/personaltodo/current
+		header Cache-Control "no-cache"
+		file_server
+	}
+	handle {
+		reverse_proxy api:8000
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+	}
+}

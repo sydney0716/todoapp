@@ -1,0 +1,568 @@
+package com.example.personaltodo;
+
+import android.content.Context;
+import android.content.Intent;
+import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
+import android.database.sqlite.SQLiteException;
+import android.view.View;
+import android.widget.RemoteViews;
+import android.widget.RemoteViewsService;
+import android.widget.RemoteViewsService.RemoteViewsFactory;
+
+import java.io.File;
+import org.json.JSONArray;
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.List;
+
+public class TodoHomeWidgetService extends RemoteViewsService {
+    @Override
+    public RemoteViewsFactory onGetViewFactory(Intent intent) {
+        return new TodoRemoteViewsFactory(getApplicationContext());
+    }
+
+    private static final class TodoRemoteViewsFactory implements RemoteViewsFactory {
+        private static final String DATABASE_NAME = "personal_todo.db";
+        private static final String SETTINGS_DATABASE_NAME = "personal_todo_settings.db";
+        private static final String TASK_SORT_OPTION_KEY = "task_sort_option";
+        private static final String TASK_SORT_DIRECTION_KEY = "task_sort_direction";
+        private static final String CURRENT_USER_ID_KEY = "current_user_id";
+        private static final String SORT_OPTION_TITLE = "title";
+        private static final String SORT_OPTION_LAST_MODIFIED = "last_modified";
+        private static final String SORT_DIRECTION_DESCENDING = "descending";
+        private static final String DEFAULT_CURRENT_USER_ID =
+                "00000000-0000-4000-8000-000000000001";
+        private static final String PARTNER_USER_ID =
+                "00000000-0000-4000-8000-000000000002";
+        private static final String[] SHORT_MONTH_NAMES = {
+                "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+        };
+        private static final int MAX_VISIBLE_SUBTASKS = 5;
+        private static final int ROW_TYPE_TASK = 0;
+        private static final int ROW_TYPE_SUBTASK = 1;
+        private static final int ROW_TYPE_MORE = 2;
+        private static final int ROW_TYPE_SEPARATOR = 3;
+        private static final int ROW_TYPE_COUNT = 4;
+
+        private final Context context;
+        private List<WidgetRow> rows = new ArrayList<>();
+        private TodoHomeWidgetTheme.Palette palette;
+        private String currentUserId = DEFAULT_CURRENT_USER_ID;
+
+        TodoRemoteViewsFactory(Context context) {
+            this.context = context;
+            this.palette = TodoHomeWidgetTheme.read(context);
+        }
+
+        @Override
+        public void onCreate() {
+            palette = TodoHomeWidgetTheme.read(context);
+            rows = readRows();
+        }
+
+        @Override
+        public void onDataSetChanged() {
+            palette = TodoHomeWidgetTheme.read(context);
+            rows = readRows();
+        }
+
+        @Override
+        public void onDestroy() {
+            rows = new ArrayList<>();
+        }
+
+        @Override
+        public int getCount() {
+            return rows.size();
+        }
+
+        @Override
+        public RemoteViews getViewAt(int position) {
+            if (position < 0 || position >= rows.size()) return null;
+
+            WidgetRow row = rows.get(position);
+            switch (row.type) {
+                case ROW_TYPE_TASK:
+                    return taskRow(row);
+                case ROW_TYPE_SUBTASK:
+                    return subTaskRow(row);
+                case ROW_TYPE_MORE:
+                    return moreRow(row);
+                case ROW_TYPE_SEPARATOR:
+                    RemoteViews separator = new RemoteViews(
+                            context.getPackageName(),
+                            R.layout.todo_home_widget_separator
+                    );
+                    separator.setInt(
+                            R.id.widgetSeparator,
+                            "setBackgroundColor",
+                            palette.separatorColor
+                    );
+                    return separator;
+                default:
+                    return null;
+            }
+        }
+
+        @Override
+        public RemoteViews getLoadingView() {
+            return null;
+        }
+
+        @Override
+        public int getViewTypeCount() {
+            return ROW_TYPE_COUNT;
+        }
+
+        @Override
+        public long getItemId(int position) {
+            if (position < 0 || position >= rows.size()) return position;
+            return rows.get(position).stableId;
+        }
+
+        @Override
+        public boolean hasStableIds() {
+            return true;
+        }
+
+        private RemoteViews taskRow(WidgetRow row) {
+            RemoteViews views = new RemoteViews(
+                    context.getPackageName(),
+                    R.layout.todo_home_widget_task_row
+            );
+            views.setImageViewResource(
+                    R.id.widgetTaskCheckbox,
+                    row.doneByCurrentUser ? (palette.checkboxDrawable == R.drawable.todo_home_widget_checkbox_unchecked_dark
+                            ? R.drawable.todo_home_widget_checkbox_checked_dark : R.drawable.todo_home_widget_checkbox_checked) : palette.checkboxDrawable
+            );
+            views.setTextViewText(R.id.widgetTaskTitle, row.title);
+            views.setTextColor(R.id.widgetTaskTitle, palette.textColor);
+            views.setTextColor(R.id.widgetTaskDueDate, palette.accentColor);
+            String dueDateText = formatDueDate(row.dueDateTimeMillis);
+            if (dueDateText == null) {
+                views.setViewVisibility(R.id.widgetTaskDueDate, View.GONE);
+            } else {
+                views.setViewVisibility(R.id.widgetTaskDueDate, View.VISIBLE);
+                views.setTextViewText(R.id.widgetTaskDueDate, dueDateText);
+            }
+
+            Intent fillInIntent = TodoHomeWidgetProvider.completionIntent(
+                    row.taskId,
+                    0,
+                    !row.doneByCurrentUser,
+                    currentUserId,
+                    !row.requiresBoth || row.doneByPartner
+            );
+            views.setOnClickFillInIntent(R.id.widgetTaskRow, fillInIntent);
+            views.setOnClickFillInIntent(R.id.widgetTaskCheckbox, fillInIntent);
+            views.setOnClickFillInIntent(R.id.widgetTaskTitle, fillInIntent);
+            views.setOnClickFillInIntent(R.id.widgetTaskDueDate, fillInIntent);
+            return views;
+        }
+
+        private RemoteViews subTaskRow(WidgetRow row) {
+            RemoteViews views = new RemoteViews(
+                    context.getPackageName(),
+                    R.layout.todo_home_widget_subtask_row
+            );
+            views.setImageViewResource(
+                    R.id.widgetSubTaskCheckbox,
+                    palette.checkboxDrawable
+            );
+            views.setTextViewText(R.id.widgetSubTaskTitle, row.title);
+            views.setTextColor(R.id.widgetSubTaskTitle, palette.textColor);
+            views.setTextColor(R.id.widgetSubTaskDueDate, palette.accentColor);
+            String dueDateText = formatDueDate(row.dueDateTimeMillis);
+            if (dueDateText == null) {
+                views.setViewVisibility(R.id.widgetSubTaskDueDate, View.GONE);
+            } else {
+                views.setViewVisibility(R.id.widgetSubTaskDueDate, View.VISIBLE);
+                views.setTextViewText(R.id.widgetSubTaskDueDate, dueDateText);
+            }
+
+            Intent fillInIntent = TodoHomeWidgetProvider.completionIntent(
+                    row.taskId,
+                    row.subTaskId,
+                    true,
+                    currentUserId,
+                    false
+            );
+            views.setOnClickFillInIntent(R.id.widgetSubTaskRow, fillInIntent);
+            views.setOnClickFillInIntent(R.id.widgetSubTaskCheckbox, fillInIntent);
+            views.setOnClickFillInIntent(R.id.widgetSubTaskTitle, fillInIntent);
+            views.setOnClickFillInIntent(R.id.widgetSubTaskDueDate, fillInIntent);
+            return views;
+        }
+
+        private RemoteViews moreRow(WidgetRow row) {
+            RemoteViews views = new RemoteViews(
+                    context.getPackageName(),
+                    R.layout.todo_home_widget_more_row
+            );
+            views.setTextViewText(
+                    R.id.widgetMoreText,
+                    "+ " + row.hiddenCount + " more task ..."
+            );
+            views.setTextColor(R.id.widgetMoreText, palette.accentColor);
+            return views;
+        }
+
+        private List<WidgetRow> readRows() {
+            File databaseFile = context.getDatabasePath(DATABASE_NAME);
+            if (!databaseFile.exists()) return new ArrayList<>();
+
+            SortSettings sortSettings = readSortSettings();
+            currentUserId = sortSettings.currentUserId;
+            TodoWidgetActionStore.PendingActions pending =
+                    TodoWidgetActionStore.read(context, currentUserId);
+            try (SQLiteDatabase database = SQLiteDatabase.openDatabase(
+                    databaseFile.getPath(),
+                    null,
+                    SQLiteDatabase.OPEN_READONLY
+            )) {
+                List<TaskItem> tasks = readTasks(database, sortSettings, pending);
+                return buildRows(tasks);
+            } catch (SQLiteException exception) {
+                return new ArrayList<>();
+            }
+        }
+
+        private SortSettings readSortSettings() {
+            File settingsFile = context.getDatabasePath(SETTINGS_DATABASE_NAME);
+            if (!settingsFile.exists()) return SortSettings.defaults();
+
+            try (SQLiteDatabase database = SQLiteDatabase.openDatabase(
+                    settingsFile.getPath(),
+                    null,
+                    SQLiteDatabase.OPEN_READONLY
+            )) {
+                return new SortSettings(
+                        readSetting(database, TASK_SORT_OPTION_KEY),
+                        readSetting(database, TASK_SORT_DIRECTION_KEY),
+                        normalizeAppUserId(readSetting(database, CURRENT_USER_ID_KEY))
+                );
+            } catch (SQLiteException exception) {
+                return SortSettings.defaults();
+            }
+        }
+
+        private String readSetting(SQLiteDatabase database, String key) {
+            try (Cursor cursor = database.rawQuery(
+                    "SELECT value FROM settings WHERE key = ? LIMIT 1",
+                    new String[]{key}
+            )) {
+                if (!cursor.moveToFirst()) return null;
+                return cursor.getString(0);
+            }
+        }
+
+        private String normalizeAppUserId(String value) {
+            if (PARTNER_USER_ID.equals(value)
+                    || "user2".equals(value)
+                    || "partner".equals(value)) {
+                return PARTNER_USER_ID;
+            }
+            if (DEFAULT_CURRENT_USER_ID.equals(value)
+                    || "user1".equals(value)
+                    || "user".equals(value)) {
+                return DEFAULT_CURRENT_USER_ID;
+            }
+            return DEFAULT_CURRENT_USER_ID;
+        }
+
+        private List<TaskItem> readTasks(SQLiteDatabase database, SortSettings sortSettings,
+                                         TodoWidgetActionStore.PendingActions pending) {
+            List<TaskItem> tasks = new ArrayList<>();
+            boolean hasCompletion = hasColumn(database, "tasks", "sharedCompletionMode");
+            boolean hasSubTaskDueDate = hasColumn(database, "subtasks", "dueDateTime");
+            boolean canFilterByOwner = hasColumn(database, "tasks", "visibility")
+                    && hasColumn(database, "tasks", "ownerUserId");
+            boolean includeLegacyPrivateTasks =
+                    DEFAULT_CURRENT_USER_ID.equals(sortSettings.currentUserId);
+            String ownershipFilter = "";
+            if (canFilterByOwner) {
+                ownershipFilter = includeLegacyPrivateTasks
+                        ? "AND (visibility = 'shared' OR ownerUserId = ? OR ownerUserId = '') "
+                        : "AND (visibility = 'shared' OR ownerUserId = ?) ";
+            }
+            String[] arguments = canFilterByOwner
+                    ? new String[]{sortSettings.currentUserId}
+                    : null;
+            try (Cursor cursor = database.rawQuery(
+                    "SELECT id, title, dueDateTime, " + (hasCompletion ? "visibility, sharedCompletionMode, completedByUserIds" : "NULL, NULL, NULL") + " FROM tasks "
+                            + "WHERE deletedAt IS NULL AND isCompleted = 0 "
+                            + ownershipFilter
+                            + "ORDER BY " + sortSettings.orderByClause(),
+                    arguments
+            )) {
+                while (cursor.moveToNext()) {
+                    long taskId = cursor.getLong(0);
+                    String title = cursor.getString(1);
+                    Long dueDateTimeMillis = cursor.isNull(2) ? null : cursor.getLong(2);
+                    boolean requiresBoth = "shared".equals(cursor.getString(3))
+                            && "both".equals(cursor.getString(4));
+                    boolean doneByPartner = completedByUser(cursor.getString(5),
+                            DEFAULT_CURRENT_USER_ID.equals(currentUserId)
+                                    ? PARTNER_USER_ID : DEFAULT_CURRENT_USER_ID);
+                    Boolean predicted = pending.taskCompletions.get(taskId);
+                    if (Boolean.TRUE.equals(predicted) && (!requiresBoth || doneByPartner)) continue;
+                    boolean doneByCurrentUser = predicted != null ? predicted
+                            : completedByUser(cursor.getString(5), sortSettings.currentUserId);
+                    tasks.add(new TaskItem(
+                            taskId,
+                            title,
+                            dueDateTimeMillis,
+                            readSubTasks(database, taskId, hasSubTaskDueDate, pending),
+                            requiresBoth,
+                            doneByCurrentUser,
+                            doneByPartner
+                    ));
+                }
+            }
+            return tasks;
+        }
+
+        private boolean completedByUser(String json, String userId) {
+            if (json == null) return false;
+            try {
+                JSONArray ids = new JSONArray(json);
+                for (int i = 0; i < ids.length(); i++) if (userId.equals(ids.optString(i))) return true;
+            } catch (org.json.JSONException ignored) { }
+            return false;
+        }
+
+        private boolean hasColumn(SQLiteDatabase database, String tableName, String columnName) {
+            try (Cursor cursor = database.rawQuery(
+                    "PRAGMA table_info(" + tableName + ")",
+                    null
+            )) {
+                while (cursor.moveToNext()) {
+                    if (columnName.equals(cursor.getString(1))) return true;
+                }
+            }
+            return false;
+        }
+
+        private SubTaskPreview readSubTasks(
+                SQLiteDatabase database,
+                long taskId,
+                boolean hasDueDateColumn,
+                TodoWidgetActionStore.PendingActions pending
+        ) {
+            List<SubTaskItem> subTasks = new ArrayList<>();
+            int totalCount = 0;
+            String dueDateColumn = hasDueDateColumn ? "dueDateTime" : "NULL";
+            String orderBy = hasColumn(database, "subtasks", "position") ? "position ASC, createdAt ASC, id ASC" : "id ASC";
+            try (Cursor cursor = database.rawQuery(
+                    "SELECT id, taskId, title, " + dueDateColumn + " FROM subtasks "
+                            + "WHERE taskId = ? AND deletedAt IS NULL AND isCompleted = 0 "
+                            + "ORDER BY " + orderBy,
+                    new String[]{String.valueOf(taskId)}
+            )) {
+                while (cursor.moveToNext()) {
+                    if (pending.subTaskIds.contains(cursor.getLong(0))) continue;
+                    totalCount++;
+                    if (subTasks.size() >= MAX_VISIBLE_SUBTASKS) continue;
+
+                    subTasks.add(new SubTaskItem(
+                            cursor.getLong(0),
+                            cursor.getLong(1),
+                            cursor.getString(2),
+                            cursor.isNull(3) ? null : cursor.getLong(3)
+                    ));
+                }
+            }
+            return new SubTaskPreview(subTasks, totalCount - subTasks.size());
+        }
+
+        private List<WidgetRow> buildRows(List<TaskItem> tasks) {
+            List<WidgetRow> nextRows = new ArrayList<>();
+            for (int index = 0; index < tasks.size(); index++) {
+                TaskItem task = tasks.get(index);
+                nextRows.add(WidgetRow.task(task.id, task.title, task.dueDateTimeMillis,
+                        task.requiresBoth, task.doneByCurrentUser, task.doneByPartner));
+
+                for (SubTaskItem subTask : task.subTasks.visibleSubTasks) {
+                    nextRows.add(WidgetRow.subTask(
+                            subTask.id,
+                            subTask.taskId,
+                            subTask.title,
+                            subTask.dueDateTimeMillis
+                    ));
+                }
+
+                if (task.subTasks.hiddenCount > 0) {
+                    nextRows.add(WidgetRow.more(task.id, task.subTasks.hiddenCount));
+                }
+
+                if (index < tasks.size() - 1) {
+                    nextRows.add(WidgetRow.separator(task.id));
+                }
+            }
+            return nextRows;
+        }
+
+        private String formatDueDate(Long dueDateTimeMillis) {
+            if (dueDateTimeMillis == null) return null;
+
+            Calendar dueDate = Calendar.getInstance();
+            dueDate.setTimeInMillis(dueDateTimeMillis);
+            return SHORT_MONTH_NAMES[dueDate.get(Calendar.MONTH)] + " "
+                    + dueDate.get(Calendar.DAY_OF_MONTH);
+        }
+
+        private static final class SortSettings {
+            final String option;
+            final String direction;
+            final String currentUserId;
+
+            SortSettings(String option, String direction, String currentUserId) {
+                this.option = option;
+                this.direction = direction;
+                this.currentUserId = currentUserId;
+            }
+
+            static SortSettings defaults() {
+                return new SortSettings(null, null, DEFAULT_CURRENT_USER_ID);
+            }
+
+            String orderByClause() {
+                boolean descending = SORT_DIRECTION_DESCENDING.equals(direction);
+                String selectedDirection = descending ? "DESC" : "ASC";
+
+                if (SORT_OPTION_TITLE.equals(option)) {
+                    return "LOWER(title) " + selectedDirection + ", "
+                            + "CASE WHEN dueDateTime IS NULL THEN 1 ELSE 0 END ASC, "
+                            + "dueDateTime ASC, id ASC";
+                }
+
+                if (SORT_OPTION_LAST_MODIFIED.equals(option)) {
+                    return "updatedAt " + selectedDirection + ", "
+                            + "CASE WHEN dueDateTime IS NULL THEN 1 ELSE 0 END ASC, "
+                            + "dueDateTime ASC, id ASC";
+                }
+
+                return "CASE WHEN dueDateTime IS NULL THEN 1 ELSE 0 END ASC, "
+                        + "dueDateTime " + selectedDirection + ", "
+                        + "LOWER(title) ASC, updatedAt DESC, id ASC";
+            }
+        }
+    }
+
+    private static final class TaskItem {
+        final long id;
+        final String title;
+        final Long dueDateTimeMillis;
+        final SubTaskPreview subTasks;
+        final boolean requiresBoth;
+        final boolean doneByCurrentUser;
+        final boolean doneByPartner;
+
+        TaskItem(
+                long id,
+                String title,
+                Long dueDateTimeMillis,
+                SubTaskPreview subTasks, boolean requiresBoth, boolean doneByCurrentUser,
+                boolean doneByPartner
+        ) {
+            this.id = id;
+            this.title = title;
+            this.dueDateTimeMillis = dueDateTimeMillis;
+            this.subTasks = subTasks;
+            this.requiresBoth = requiresBoth;
+            this.doneByCurrentUser = doneByCurrentUser;
+            this.doneByPartner = doneByPartner;
+        }
+    }
+
+    private static final class SubTaskPreview {
+        final List<SubTaskItem> visibleSubTasks;
+        final int hiddenCount;
+
+        SubTaskPreview(List<SubTaskItem> visibleSubTasks, int hiddenCount) {
+            this.visibleSubTasks = visibleSubTasks;
+            this.hiddenCount = hiddenCount;
+        }
+    }
+
+    private static final class SubTaskItem {
+        final long id;
+        final long taskId;
+        final String title;
+        final Long dueDateTimeMillis;
+
+        SubTaskItem(long id, long taskId, String title, Long dueDateTimeMillis) {
+            this.id = id;
+            this.taskId = taskId;
+            this.title = title;
+            this.dueDateTimeMillis = dueDateTimeMillis;
+        }
+    }
+
+    private static final class WidgetRow {
+        final int type;
+        boolean requiresBoth;
+        boolean doneByCurrentUser;
+        boolean doneByPartner;
+        final long stableId;
+        final long taskId;
+        final long subTaskId;
+        final int hiddenCount;
+        final String title;
+        final Long dueDateTimeMillis;
+
+        private WidgetRow(
+                int type,
+                long stableId,
+                long taskId,
+                long subTaskId,
+                int hiddenCount,
+                String title,
+                Long dueDateTimeMillis
+        ) {
+            this.type = type;
+            this.stableId = stableId;
+            this.taskId = taskId;
+            this.subTaskId = subTaskId;
+            this.hiddenCount = hiddenCount;
+            this.title = title;
+            this.dueDateTimeMillis = dueDateTimeMillis;
+        }
+
+        static WidgetRow task(long taskId, String title, Long dueDateTimeMillis,
+                              boolean requiresBoth, boolean doneByCurrentUser, boolean doneByPartner) {
+            WidgetRow row = new WidgetRow(0, taskId * 10L, taskId, 0, 0, title, dueDateTimeMillis);
+            row.requiresBoth = requiresBoth;
+            row.doneByCurrentUser = doneByCurrentUser;
+            row.doneByPartner = doneByPartner;
+            return row;
+        }
+
+        static WidgetRow subTask(
+                long subTaskId,
+                long taskId,
+                String title,
+                Long dueDateTimeMillis
+        ) {
+            return new WidgetRow(
+                    1,
+                    subTaskId * 10L + 1L,
+                    taskId,
+                    subTaskId,
+                    0,
+                    title,
+                    dueDateTimeMillis
+            );
+        }
+
+        static WidgetRow more(long taskId, int hiddenCount) {
+            return new WidgetRow(2, taskId * 10L + 2L, taskId, 0, hiddenCount, "", null);
+        }
+
+        static WidgetRow separator(long taskId) {
+            return new WidgetRow(3, taskId * 10L + 3L, taskId, 0, 0, "", null);
+        }
+    }
+}

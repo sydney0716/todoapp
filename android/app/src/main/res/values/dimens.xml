@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="todo_widget_inner_padding">16dp</dimen>
+    <dimen name="todo_widget_list_top_margin">10dp</dimen>
+    <dimen name="todo_widget_header_text_size">15sp</dimen>
+    <dimen name="todo_widget_add_button_size">30dp</dimen>
+    <dimen name="todo_widget_add_button_text_size">20sp</dimen>
+    <dimen name="todo_widget_task_min_height">36dp</dimen>
+    <dimen name="todo_widget_task_checkbox_size">20dp</dimen>
+    <dimen name="todo_widget_task_gap">8dp</dimen>
+    <dimen name="todo_widget_task_text_size">14sp</dimen>
+    <dimen name="todo_widget_due_text_size">11sp</dimen>
+    <dimen name="todo_widget_subtask_min_height">30dp</dimen>
+    <dimen name="todo_widget_subtask_indent">22dp</dimen>
+    <dimen name="todo_widget_subtask_checkbox_size">18dp</dimen>
+    <dimen name="todo_widget_subtask_gap">7dp</dimen>
+    <dimen name="todo_widget_subtask_text_size">12sp</dimen>
+    <dimen name="todo_widget_more_indent">44dp</dimen>
+</resources>

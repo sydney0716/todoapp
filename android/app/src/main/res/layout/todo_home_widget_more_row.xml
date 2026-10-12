@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widgetMoreText"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:ellipsize="end"
+    android:maxLines="1"
+    android:minHeight="24dp"
+    android:paddingStart="@dimen/todo_widget_more_indent"
+    android:paddingTop="2dp"
+    android:textColor="#8B5E34"
+    android:textSize="12sp" />
