@@ -49,7 +49,7 @@ A shared to-do app for two people on Mac, Android, iOS, and the web. I built it 
 
 ## Good to know
 
-- On iPhone/iPad, open [the web app](https://todo.example.com/app/) in Safari and choose Share → Add to Home Screen → Open as Web App. It uses the same accounts and server, works offline after the first online load, and has no weekly signing renewal. Web apps sync while open and when reopened; native widgets and scheduled reminders require the native apps.
+- On iPhone/iPad, open the web app in Safari and choose Share → Add to Home Screen → Open as Web App. It uses the same accounts and server, works offline after the first online load, and has no weekly signing renewal. Web apps sync while open and when reopened; native widgets and scheduled reminders require the native apps.
 
 - Open apps check for changes every 30 seconds. In the background, they check about every 2 hours, but the OS may delay or skip that.
 - The completed-task retention setting is stored on each device, so use the same value on all of the owner's devices.
