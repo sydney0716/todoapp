@@ -5,6 +5,7 @@ FastAPI and PostgreSQL provide authentication and canonical task state for two f
 ## Sync behavior
 
 - `POST /auth/login`, `POST /auth/refresh`, and `POST /auth/logout` manage device-bound sessions. Login initializes the configured `user1` and `user2` accounts; ordinary sync does not rehash their passwords.
+- Login allows 10 attempts per IP and 20 per account in a one-minute window, including successful attempts. Excess requests return HTTP 429 with `Retry-After` before password hashing. Blocked requests do not extend the window; refresh and sync are unaffected. Counters are bounded, held in memory, and reset on process restart. Run one API worker; multiple workers would need a shared limiter.
 - `POST /sync/tasks` accepts changed task fields and child IDs and returns canonical records. Only the caller's completion flag changes for Both-person tasks. Conflicting edits to the same field follow server transaction order, rather than device timestamps. Legacy payloads without changed-field metadata retain version-based compatibility.
 - `GET /sync/tasks?cursor=...` returns up to 500 events plus `has_more`. The cursor advances through own-device events even when those events are filtered from `changes`; clients must follow `has_more` even for empty pages.
 - `GET /sync/bootstrap` returns visible tasks and a matching cursor. PostgreSQL transaction advisory locks serialize writers and bootstrap reads to prevent skipping uncommitted earlier events. This is intentionally simple for two users.

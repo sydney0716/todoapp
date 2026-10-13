@@ -61,6 +61,8 @@ final class TodoHomeWidgetTheme {
         final int backgroundDrawable;
         final int buttonBackgroundDrawable;
         final int checkboxDrawable;
+        final int checkedCheckboxDrawable;
+        final int partialCheckboxDrawable;
         final int textColor;
         final int accentColor;
         final int buttonTextColor;
@@ -70,6 +72,8 @@ final class TodoHomeWidgetTheme {
                 int backgroundDrawable,
                 int buttonBackgroundDrawable,
                 int checkboxDrawable,
+                int checkedCheckboxDrawable,
+                int partialCheckboxDrawable,
                 int textColor,
                 int accentColor,
                 int buttonTextColor,
@@ -78,6 +82,8 @@ final class TodoHomeWidgetTheme {
             this.backgroundDrawable = backgroundDrawable;
             this.buttonBackgroundDrawable = buttonBackgroundDrawable;
             this.checkboxDrawable = checkboxDrawable;
+            this.checkedCheckboxDrawable = checkedCheckboxDrawable;
+            this.partialCheckboxDrawable = partialCheckboxDrawable;
             this.textColor = textColor;
             this.accentColor = accentColor;
             this.buttonTextColor = buttonTextColor;
@@ -89,6 +95,8 @@ final class TodoHomeWidgetTheme {
                     R.drawable.todo_home_widget_background,
                     R.drawable.todo_home_widget_button_background,
                     R.drawable.todo_home_widget_checkbox_unchecked,
+                    R.drawable.todo_home_widget_checkbox_checked,
+                    R.drawable.todo_home_widget_checkbox_partial,
                     Color.rgb(45, 42, 38),
                     Color.rgb(139, 94, 52),
                     Color.rgb(255, 252, 245),
@@ -101,6 +109,8 @@ final class TodoHomeWidgetTheme {
                     R.drawable.todo_home_widget_background_dark,
                     R.drawable.todo_home_widget_button_background_dark,
                     R.drawable.todo_home_widget_checkbox_unchecked_dark,
+                    R.drawable.todo_home_widget_checkbox_checked_dark,
+                    R.drawable.todo_home_widget_checkbox_partial_dark,
                     Color.rgb(237, 226, 209),
                     Color.rgb(214, 176, 124),
                     Color.rgb(31, 27, 23),

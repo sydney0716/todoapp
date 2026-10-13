@@ -182,6 +182,24 @@ class SettingsController extends ChangeNotifier {
       }
     }
     await _read();
+    if (!kIsWeb && previousTodoApiBaseUrl.isNotEmpty) {
+      await migrateServerAddress(
+        previousBaseUrl: previousTodoApiBaseUrl,
+        nextBaseUrl: initialTodoApiBaseUrl,
+      );
+    }
+  }
+
+  // A hostname change on the same backend retains sessions and sync cursors.
+  Future<void> migrateServerAddress({
+    required String previousBaseUrl,
+    required String nextBaseUrl,
+  }) async {
+    final previous = validateTodoApiBaseUrl(previousBaseUrl);
+    final next = validateTodoApiBaseUrl(nextBaseUrl);
+    if (apiBaseUrl != previous || apiBaseUrl == next) return;
+    await _store.setString(_apiBaseUrlKey, next);
+    apiBaseUrl = next;
   }
 
   Future<void> close() async {

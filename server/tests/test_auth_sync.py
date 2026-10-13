@@ -16,6 +16,7 @@ from app.fixed_accounts import (
     DEFAULT_SHARED_WORKSPACE_ID,
     PARTNER_USER_ID,
 )
+from app.login_rate_limit import get_login_rate_limiter
 from app.main import app
 from app.models import (
     Subtask,
@@ -67,6 +68,51 @@ def test_sync_event_operation_uses_existing_database_enum() -> None:
     operation_type = SyncEvent.__table__.c.operation.type
 
     assert operation_type.name == "sync_operation"
+
+
+def test_login_throttling_precedes_password_work_and_ignores_spoofed_headers(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    password_work = []
+    monkeypatch.setattr(
+        "app.routes.auth.ensure_fixed_accounts",
+        lambda *_: password_work.append(True),
+    )
+    for attempt in range(11):
+        response = client.post(
+            "/auth/login",
+            headers={"X-Forwarded-For": f"192.0.2.{attempt}"},
+            json={
+                "username": "unknown",
+                "password": "incorrect",
+                "device_id": str(DEVICE_ID),
+                "device_name": "Test",
+                "platform": "web",
+            },
+        )
+        assert response.status_code == (401 if attempt < 10 else 429)
+    assert len(password_work) == 10
+    assert 1 <= int(response.headers["Retry-After"]) <= 60
+
+
+def test_login_limit_does_not_block_existing_session_refresh_or_sync(
+    client: TestClient,
+) -> None:
+    auth = _login(client)
+    for _ in range(9):
+        get_login_rate_limiter().check("testclient", "user1")
+    refresh_response = client.post(
+        "/auth/refresh",
+        json={"refresh_token": auth["refresh_token"], "device_id": auth["device_id"]},
+    )
+    assert refresh_response.status_code == 200
+    assert (
+        client.get(
+            "/sync/bootstrap",
+            headers={"Authorization": f"Bearer {auth['access_token']}"},
+        ).status_code
+        == 200
+    )
 
 
 @pytest.mark.parametrize("platform", ["android", "web"])

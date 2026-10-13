@@ -1,12 +1,13 @@
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..database import get_db
 from ..fixed_accounts import ensure_fixed_accounts, verify_secret
+from ..login_rate_limit import get_login_rate_limiter
 from ..models import Device, User
 from ..schemas import AuthLoginRequest, AuthResponse, RefreshRequest
 from ..security import (
@@ -27,8 +28,12 @@ _DB_DEPENDENCY = Depends(get_db)
 @router.post("/login", response_model=AuthResponse)
 def login(
     payload: AuthLoginRequest,
+    request: Request,
     db: Session = _DB_DEPENDENCY,
 ) -> AuthResponse:
+    get_login_rate_limiter().check(
+        request.client.host if request.client else "unknown", payload.username
+    )
     settings = get_settings()
     ensure_fixed_accounts(db, settings)
 

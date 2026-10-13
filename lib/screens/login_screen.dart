@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../api/todo_api_models.dart';
 import '../app_strings.dart';
 import '../models.dart';
 import 'shared/paper_background.dart';
@@ -157,9 +158,12 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       await widget.onLogin(account, password);
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
-      setState(() => _errorMessage = strings.loginFailed);
+      setState(() => _errorMessage =
+          error is TodoApiException && error.statusCode == 429
+              ? strings.loginRateLimited
+              : strings.loginFailed);
     } finally {
       if (mounted) {
         setState(() => _isSubmitting = false);

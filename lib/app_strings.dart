@@ -43,6 +43,9 @@ class AppStrings {
   String get password => _ko ? '비밀번호' : 'Password';
   String get login => _ko ? '로그인' : 'Log in';
   String get loginFailed => _ko ? '로그인할 수 없습니다.' : 'Unable to log in.';
+  String get loginRateLimited => _ko
+      ? '로그인 시도가 너무 많습니다. 1분 후 다시 시도하세요.'
+      : 'Too many login attempts. Try again in a minute.';
   String get syncingNow => _ko ? '동기화 중...' : 'Syncing...';
   String get passwordRequired => _ko ? '비밀번호를 입력하세요.' : 'Password is required.';
   String get unexpectedServerResponse =>

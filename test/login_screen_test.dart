@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:personaltodo/api/todo_api_models.dart';
 import 'package:personaltodo/models.dart';
 import 'package:personaltodo/screens/login_screen.dart';
 import 'package:personaltodo/theme.dart';
@@ -66,6 +67,34 @@ void main() {
 
     expect(loginCount, 0);
     expect(find.text('Password is required.'), findsOneWidget);
+  });
+  testWidgets('explains the wait when login attempts are limited', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: LoginScreen(
+          onLogin: (_, __) async {
+            throw const TodoApiException(
+              statusCode: 429,
+              message: 'Rate limited',
+            );
+          },
+        ),
+      ),
+    );
+    await tester.tap(find.text('User 1'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('login-password-field')),
+      'test-password',
+    );
+    await tester.tap(find.byKey(const ValueKey('login-submit-button')));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Too many login attempts. Try again in a minute.'),
+      findsOneWidget,
+    );
   });
   testWidgets('login remains scrollable when the keyboard leaves little height',
       (tester) async {

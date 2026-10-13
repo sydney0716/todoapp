@@ -11,6 +11,8 @@ services:
       AUTO_MIGRATE: ${AUTO_MIGRATE:-false}
       USER1_PASSWORD: ${USER1_PASSWORD:?set USER1_PASSWORD in server/.env}
       USER2_PASSWORD: ${USER2_PASSWORD:?set USER2_PASSWORD in server/.env}
+      # Caddy overwrites forwarded headers; API ports must stay unpublished.
+      FORWARDED_ALLOW_IPS: "*"
     depends_on:
       postgres:
         condition: service_healthy
@@ -49,6 +51,7 @@ services:
     image: caddy:2.8-alpine
     environment:
       PERSONAL_TODO_DOMAIN: ${PERSONAL_TODO_DOMAIN:?set PERSONAL_TODO_DOMAIN in server/.env}
+      PERSONAL_TODO_PREVIOUS_DOMAIN: ${PERSONAL_TODO_PREVIOUS_DOMAIN:-}
     depends_on:
       api:
         condition: service_healthy

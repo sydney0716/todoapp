@@ -220,4 +220,60 @@ void main() {
     expect(settings.currentUserId, partnerUserId);
     expect(settings.initialLoginCompleted, isTrue);
   });
+
+  test(
+    'hostname migration preserves the session and cursor across restart',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'personaltodo_hostname_',
+      );
+      final databasePath = path.join(tempDir.path, 'settings.db');
+      var settings = SettingsController(
+        store: SettingsStore(databasePath: databasePath),
+      );
+      await settings.init();
+      await settings.setApiBaseUrl('https://old.example.com');
+      await settings.recordServerConnectionSuccess(
+        username: 'user2',
+        cursor: '42',
+        taskCount: 7,
+        session: const AuthSession(
+          accessToken: 'access',
+          refreshToken: 'refresh',
+          tokenType: 'bearer',
+          userId: partnerUserId,
+          deviceId: 'device',
+        ),
+      );
+      await settings.migrateServerAddress(
+        previousBaseUrl: 'https://old.example.com/',
+        nextBaseUrl: 'https://new.example.com/',
+      );
+      await settings.close();
+      settings = SettingsController(
+        store: SettingsStore(databasePath: databasePath),
+      );
+      await settings.init();
+      addTearDown(() async {
+        await settings.close();
+        await tempDir.delete(recursive: true);
+      });
+      expect(settings.apiBaseUrl, 'https://new.example.com');
+      expect(settings.currentUserId, partnerUserId);
+      expect(settings.accessToken, 'access');
+      expect(settings.refreshToken, 'refresh');
+      expect(settings.authDeviceId, 'device');
+      expect(settings.lastSyncCursor, '42');
+      expect(settings.lastBootstrapTaskCount, 7);
+      expect(settings.initialLoginCompleted, isTrue);
+      expect(settings.serverConnectionStatus, ServerConnectionStatus.connected);
+
+      // An unrelated/custom server must never be redirected by this migration.
+      await settings.migrateServerAddress(
+        previousBaseUrl: 'https://other.example.com',
+        nextBaseUrl: 'https://unexpected.example.com',
+      );
+      expect(settings.apiBaseUrl, 'https://new.example.com');
+    },
+  );
 }

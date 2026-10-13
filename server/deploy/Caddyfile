@@ -1,4 +1,4 @@
-{$PERSONAL_TODO_DOMAIN} {
+{$PERSONAL_TODO_DOMAIN} {$PERSONAL_TODO_PREVIOUS_DOMAIN:} {
 	encode gzip zstd
 
 	redir /app /app/ 308

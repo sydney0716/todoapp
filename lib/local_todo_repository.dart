@@ -78,7 +78,10 @@ class LocalTodoRepository extends ChangeNotifier {
         '${_database.path}.sync_lock.db',
         singleInstance: false,
         version: 1,
-        onConfigure: (db) => db.execute('PRAGMA busy_timeout = 0'),
+        onConfigure: (db) async {
+          // This pragma returns a row, so native drivers need the query API.
+          await db.rawQuery('PRAGMA busy_timeout = 0');
+        },
         onCreate: (db, _) => db.execute('CREATE TABLE sync_lock (id INTEGER)'),
       );
       return await lock.transaction((_) => action(), exclusive: true);

@@ -59,6 +59,10 @@ Update the server first, then update all four clients. Existing local databases 
 
 ## Home Screen web app
 
+Keep the API's port unpublished: the Compose configuration trusts forwarded client addresses from Caddy so login throttling can distinguish visitors. Caddy ignores client-supplied forwarded addresses by default. If you publish the API directly or add another proxy, configure explicit trusted proxies first.
+
+For a hostname change, set `PERSONAL_TODO_DOMAIN` to the new hostname and temporarily set `PERSONAL_TODO_PREVIOUS_DOMAIN` to the old one. Point the new DNS record to the VM, recreate Caddy, and verify HTTPS. Native updates can include `TODO_PREVIOUS_API_BASE_URL` alongside `TODO_API_BASE_URL` in a gitignored build configuration to migrate a saved URL for the same backend while retaining sessions and cursors. Custom server URLs stay unchanged. Web storage belongs to each origin: sync pending edits at the old address, then open the new address, sign in, and add it to the Home Screen again. Clear the previous-domain setting and recreate Caddy after all devices have moved.
+
 Build the static client on your Mac with Flutter 3.44 / Dart 3.12 or newer:
 
 ```bash

@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 
 const defaultTodoApiBaseUrl = String.fromEnvironment('TODO_API_BASE_URL',
     defaultValue: 'https://todo.example.com');
+const previousTodoApiBaseUrl =
+    String.fromEnvironment('TODO_PREVIOUS_API_BASE_URL');
 
 String get initialTodoApiBaseUrl =>
     kIsWeb && !const bool.hasEnvironment('TODO_API_BASE_URL')

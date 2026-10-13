@@ -132,11 +132,13 @@ public class TodoHomeWidgetService extends RemoteViewsService {
                     context.getPackageName(),
                     R.layout.todo_home_widget_task_row
             );
-            views.setImageViewResource(
-                    R.id.widgetTaskCheckbox,
-                    row.doneByCurrentUser ? (palette.checkboxDrawable == R.drawable.todo_home_widget_checkbox_unchecked_dark
-                            ? R.drawable.todo_home_widget_checkbox_checked_dark : R.drawable.todo_home_widget_checkbox_checked) : palette.checkboxDrawable
-            );
+            int checkboxDrawable = palette.checkboxDrawable;
+            if (row.requiresBoth && row.doneByCurrentUser != row.doneByPartner) {
+                checkboxDrawable = palette.partialCheckboxDrawable;
+            } else if (row.doneByCurrentUser) {
+                checkboxDrawable = palette.checkedCheckboxDrawable;
+            }
+            views.setImageViewResource(R.id.widgetTaskCheckbox, checkboxDrawable);
             views.setTextViewText(R.id.widgetTaskTitle, row.title);
             views.setTextColor(R.id.widgetTaskTitle, palette.textColor);
             views.setTextColor(R.id.widgetTaskDueDate, palette.accentColor);
