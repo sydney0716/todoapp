@@ -65,7 +65,7 @@ Build the static client on your Mac with Flutter 3.44 / Dart 3.12 or newer:
 bash scripts/build_web.sh
 ```
 
-Deploy the updated API first; its login schema accepts the new `web` device platform without a database migration. Upload `build/web/` to `server/deploy/web/releases/BUILD_ID/` on the VM. This output includes the SQLite worker/Wasm files, local rendering/fonts, and the versioned offline shell cache. The two generated SQLite files under the source `web/` directory and deployed static files are gitignored.
+Deploy the updated API and apply migrations first. Migration `009_web_device_platform.sql` allows `web` devices in the database; accepting `web` in the login schema alone is insufficient. Upload `build/web/` to `server/deploy/web/releases/BUILD_ID/` on the VM. This output includes the SQLite worker/Wasm files, local rendering/fonts, and the versioned offline shell cache. The two generated SQLite files under the source `web/` directory and deployed static files are gitignored.
 
 On the VM, point `current` at that release and apply the updated Caddy configuration and Compose file:
 

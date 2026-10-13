@@ -105,7 +105,7 @@ def client(database):
         app.dependency_overrides.clear()
 
 
-def login(client, username, password, device_id):
+def login(client, username, password, device_id, *, platform="macos"):
     response = client.post(
         "/auth/login",
         json={
@@ -113,11 +113,39 @@ def login(client, username, password, device_id):
             "password": password,
             "device_id": str(device_id),
             "device_name": "Integration test",
-            "platform": "macos",
+            "platform": platform,
         },
     )
     assert response.status_code == 200, response.text
     return response.json()
+
+
+@pytest.mark.parametrize(
+    ("username", "password", "user_id"),
+    [
+        ("user1", "postgres-test-one", DEFAULT_CURRENT_USER_ID),
+        ("user2", "postgres-test-two", PARTNER_USER_ID),
+    ],
+)
+def test_web_login_registers_new_device_and_bootstraps(
+    client, database, username, password, user_id
+):
+    device_id = uuid4()
+    auth = login(client, username, password, device_id, platform="web")
+
+    assert auth["user_id"] == str(user_id)
+    assert auth["device_id"] == str(device_id)
+    with Session(database) as db:
+        device = db.get(Device, device_id)
+        assert device.platform == "web"
+        assert device.user_id == user_id
+
+    bootstrap_response = client.get(
+        "/sync/bootstrap",
+        headers={"Authorization": f"Bearer {auth['access_token']}"},
+    )
+    assert bootstrap_response.status_code == 200, bootstrap_response.text
+    assert bootstrap_response.json()["tasks"] == []
 
 
 def request(device_id, completed):
