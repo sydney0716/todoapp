@@ -39,19 +39,29 @@ A shared to-do app for two people on Mac, Android, iOS, and the web. I built it 
 
 ## Getting started
 
+Replace `<your-domain>` with your own hostname.
+
 1. **Deploy the server.** You need a VPS with Docker and a domain. See the [deployment guide](server/deploy/README_ORACLE_VM.md).
-2. **Build the app.**
+2. **Build a client.** For Android:
+
    ```sh
-   flutter build apk --dart-define=TODO_API_BASE_URL=https://todo.yourdomain.com
+   flutter build apk --dart-define=TODO_API_BASE_URL="https://<your-domain>"
    ```
-   You can also enter the server address on the login screen.
+
+   Or build the web app:
+
+   ```sh
+   bash scripts/build_web.sh
+   ```
+
+   See the deployment guide to publish `build/web/`. Native apps also accept the server address on the login screen.
 3. **Log in** as `user1` or `user2` using `USER1_PASSWORD` or `USER2_PASSWORD` from `server/.env`.
+4. **On iPhone/iPad**, open `https://<your-domain>/app/` in Safari, then choose Share → Add to Home Screen → Open as Web App. No weekly signing renewal is needed.
 
 ## Good to know
 
-- On iPhone/iPad, open the web app in Safari and choose Share → Add to Home Screen → Open as Web App. It uses the same accounts and server, works offline after the first online load, and has no weekly signing renewal. Web apps sync while open and when reopened; native widgets and scheduled reminders require the native apps.
-
-- Open apps check for changes every 30 seconds. In the background, they check about every 2 hours, but the OS may delay or skip that.
+- Open apps check for changes every 30 seconds. Native apps request background refresh about every 2 hours; the OS may delay or skip it.
+- The web app works offline after the first online load and syncs while open or on reopen. Widgets and scheduled reminders require native apps.
 - The completed-task retention setting is stored on each device, so use the same value on all of the owner's devices.
 - Only the owner automatically moves completed tasks to the trash. Trash is kept for 30 days.
 - If Android can't use exact alarms, it falls back to inexact reminders and shows a warning in Settings.
@@ -60,4 +70,4 @@ A shared to-do app for two people on Mac, Android, iOS, and the web. I built it 
 ## More docs
 
 - [Backend](server/README.md): sync protocol, local development, and tests
-- [Deployment](server/deploy/README_ORACLE_VM.md): setup, upgrades, backups, and the device release checklist
+- [Deployment](server/deploy/README_ORACLE_VM.md): setup, upgrades, web hosting, and backups
