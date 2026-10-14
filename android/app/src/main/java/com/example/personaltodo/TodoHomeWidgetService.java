@@ -157,10 +157,11 @@ public class TodoHomeWidgetService extends RemoteViewsService {
                     currentUserId,
                     !row.requiresBoth || row.doneByPartner
             );
-            views.setOnClickFillInIntent(R.id.widgetTaskRow, fillInIntent);
+            // Clear row-wide actions when launchers reuse previously rendered views.
+            views.setOnClickFillInIntent(R.id.widgetTaskRow, null);
             views.setOnClickFillInIntent(R.id.widgetTaskCheckbox, fillInIntent);
-            views.setOnClickFillInIntent(R.id.widgetTaskTitle, fillInIntent);
-            views.setOnClickFillInIntent(R.id.widgetTaskDueDate, fillInIntent);
+            views.setOnClickFillInIntent(R.id.widgetTaskTitle, null);
+            views.setOnClickFillInIntent(R.id.widgetTaskDueDate, null);
             return views;
         }
 
@@ -191,10 +192,10 @@ public class TodoHomeWidgetService extends RemoteViewsService {
                     currentUserId,
                     false
             );
-            views.setOnClickFillInIntent(R.id.widgetSubTaskRow, fillInIntent);
+            views.setOnClickFillInIntent(R.id.widgetSubTaskRow, null);
             views.setOnClickFillInIntent(R.id.widgetSubTaskCheckbox, fillInIntent);
-            views.setOnClickFillInIntent(R.id.widgetSubTaskTitle, fillInIntent);
-            views.setOnClickFillInIntent(R.id.widgetSubTaskDueDate, fillInIntent);
+            views.setOnClickFillInIntent(R.id.widgetSubTaskTitle, null);
+            views.setOnClickFillInIntent(R.id.widgetSubTaskDueDate, null);
             return views;
         }
 

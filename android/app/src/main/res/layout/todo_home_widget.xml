@@ -55,6 +55,8 @@
             android:cacheColorHint="@android:color/transparent"
             android:divider="@null"
             android:overScrollMode="never"
+            android:paddingStart="@dimen/todo_widget_list_horizontal_inset"
+            android:paddingEnd="@dimen/todo_widget_list_horizontal_inset"
             android:scrollbars="none" />
 
         <TextView
@@ -65,6 +67,8 @@
             android:layout_weight="1"
             android:ellipsize="end"
             android:maxLines="2"
+            android:paddingStart="@dimen/todo_widget_list_horizontal_inset"
+            android:paddingEnd="@dimen/todo_widget_list_horizontal_inset"
             android:text="@string/todo_home_widget_no_tasks"
             android:textColor="#2D2A26"
             android:textSize="13sp"

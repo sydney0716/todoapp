@@ -9,4 +9,4 @@
     android:paddingStart="@dimen/todo_widget_more_indent"
     android:paddingTop="2dp"
     android:textColor="#8B5E34"
-    android:textSize="12sp" />
+    android:textSize="@dimen/todo_widget_subtask_text_size" />
