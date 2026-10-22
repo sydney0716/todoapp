@@ -282,6 +282,49 @@ void main() {
     );
   }
 
+  testWidgets(
+      'Mac widget opens a new server task after downloading its stable ID',
+      (tester) async {
+    const syncId = '00000000-0000-4000-8000-000000000123';
+    final downloaded =
+        TodoTask(id: 77, syncId: syncId, title: 'Created on another device');
+    final tasks = <TodoTask>[];
+    final repository = _FakeAppRepository(cachedTasks: tasks);
+    final pending = <Map<String, Object?>>[
+      {'id': 'remote-navigation', 'type': 'open_task', 'taskSyncId': syncId},
+    ];
+    final acknowledged = <String>[];
+    var downloads = 0;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('com.example.personaltodo/widget_actions'),
+        (call) async {
+      if (call.method == 'consumePendingWidgetActions') return pending.toList();
+      if (call.method == 'acknowledgeWidgetActions') {
+        acknowledged.addAll((call.arguments as List).cast<String>());
+        pending.clear();
+      }
+      return null;
+    });
+    await tester.pumpWidget(PersonalTodoApp(
+      repository: repository,
+      settings: _connectedSettings(),
+      periodicSyncRunner: () async {
+        downloads++;
+        if (tasks.isEmpty) tasks.add(downloaded);
+        return const TodoSyncResult(
+            pushedCount: 0, pulledCount: 1, failedCount: 0, cursor: '1');
+      },
+    ));
+    await tester.pumpAndSettle();
+    expect(downloads, greaterThanOrEqualTo(1));
+    expect(find.byType(TaskEditorScreen), findsOneWidget);
+    expect(tester.widget<TaskEditorScreen>(find.byType(TaskEditorScreen)).task,
+        same(downloaded));
+    expect(downloaded.isCompleted, isFalse);
+    expect(acknowledged, ['remote-navigation']);
+    await tester.pumpWidget(const SizedBox.shrink());
+  }, variant: TargetPlatformVariant({TargetPlatform.macOS}));
+
   for (final expiredAtStartup in [false, true]) {
     testWidgets(
         'opens one same-account login when session expires ${expiredAtStartup ? 'before startup' : 'while open'}',

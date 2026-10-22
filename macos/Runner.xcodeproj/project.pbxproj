@@ -38,6 +38,8 @@
 		A1000000000000000000001C /* TodoDesktopWidgetState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000001B /* TodoDesktopWidgetState.swift */; };
 		A1000000000000000000001D /* TodoDesktopWidgetState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000001B /* TodoDesktopWidgetState.swift */; };
 		A927C644851836F9C1DE3432 /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0C7F01DB90AF14332186CFD2 /* Pods_Runner.framework */; };
+		A20000000000000000000002 /* TodoDesktopWidgetSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* TodoDesktopWidgetSync.swift */; };
+		A20000000000000000000003 /* TodoDesktopWidgetSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* TodoDesktopWidgetSync.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -124,6 +126,7 @@
 		A10000000000000000000016 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A10000000000000000000018 /* TodoDesktopWidgetIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoDesktopWidgetIntents.swift; sourceTree = "<group>"; };
 		A1000000000000000000001B /* TodoDesktopWidgetState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoDesktopWidgetState.swift; sourceTree = "<group>"; };
+		A20000000000000000000001 /* TodoDesktopWidgetSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoDesktopWidgetSync.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -227,6 +230,7 @@
 				A10000000000000000000001 /* TodoDesktopWidgetBridge.swift */,
 				A10000000000000000000018 /* TodoDesktopWidgetIntents.swift */,
 				A1000000000000000000001B /* TodoDesktopWidgetState.swift */,
+				A20000000000000000000001 /* TodoDesktopWidgetSync.swift */,
 				33E51913231747F40026EE4D /* DebugProfile.entitlements */,
 				33E51914231749380026EE4D /* Release.entitlements */,
 				33CC11242044D66E0003C045 /* Resources */,
@@ -553,6 +557,7 @@
 				A10000000000000000000002 /* TodoDesktopWidgetBridge.swift in Sources */,
 				A10000000000000000000019 /* TodoDesktopWidgetIntents.swift in Sources */,
 				A1000000000000000000001C /* TodoDesktopWidgetState.swift in Sources */,
+				A20000000000000000000002 /* TodoDesktopWidgetSync.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -563,6 +568,7 @@
 				A10000000000000000000004 /* TodoDesktopWidget.swift in Sources */,
 				A1000000000000000000001A /* TodoDesktopWidgetIntents.swift in Sources */,
 				A1000000000000000000001D /* TodoDesktopWidgetState.swift in Sources */,
+				A20000000000000000000003 /* TodoDesktopWidgetSync.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

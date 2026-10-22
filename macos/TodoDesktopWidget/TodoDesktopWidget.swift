@@ -97,14 +97,13 @@ struct TodoDesktopWidgetProvider: TimelineProvider {
   ) {
     let now = Date()
     let snapshot = TodoDesktopWidgetStore.load()
-    let entry = entry(date: now, snapshot: snapshot)
     let nextRefresh = now.addingTimeInterval(TodoDesktopWidgetSnapshot.refreshInterval)
 
     Task { @MainActor in
       if !context.isPreview {
-        TodoDesktopWidgetStore.refreshInBackgroundIfNeeded(snapshot, at: now)
+        await TodoDesktopWidgetStore.refreshInBackgroundIfNeeded(snapshot, at: now)
       }
-      completion(Timeline(entries: [entry], policy: .after(nextRefresh)))
+      completion(Timeline(entries: [entry(date: now, snapshot: TodoDesktopWidgetStore.load())], policy: .after(nextRefresh)))
     }
   }
 
@@ -146,15 +145,33 @@ private enum TodoDesktopWidgetStore {
   @MainActor
   static func refreshInBackgroundIfNeeded(
     _ snapshot: TodoDesktopWidgetSnapshot, at now: Date
-  ) {
-    guard let defaults = UserDefaults(suiteName: appGroupId) else { return }
+  ) async {
+    guard let defaults = UserDefaults(suiteName: appGroupId),
+          let contextURL = TodoDesktopWidgetFiles.contextURL,
+          let snapshotURL = TodoDesktopWidgetFiles.snapshotURL,
+          let contextData = try? Data(contentsOf: contextURL),
+          let context = try? JSONDecoder().decode(TodoDesktopWidgetSyncContext.self, from: contextData)
+    else { return }
     let key = "todo_widget_last_background_refresh"
     let lastAttempt = defaults.object(forKey: key) as? Date
     guard snapshot.needsBackgroundRefresh(at: now, lastAttempt: lastAttempt) else { return }
     // All widget variants share the throttle, including when the server is offline.
     defaults.set(now, forKey: key)
     defaults.synchronize()
-    TodoDesktopWidgetActionStore.wakeAppInBackground()
+    let previousData = try? Data(contentsOf: snapshotURL)
+    do {
+      let updated = try await TodoDesktopWidgetSyncClient().fetch(
+        context: context, previous: snapshot, now: now
+      )
+      // The app may edit a task, sign out or switch sessions during the request.
+      guard (try? Data(contentsOf: contextURL)) == contextData,
+            (try? Data(contentsOf: snapshotURL)) == previousData else { return }
+      try TodoDesktopWidgetFiles.save(try JSONEncoder().encode(updated), to: snapshotURL)
+      WidgetCenter.shared.reloadAllTimelines()
+    } catch {
+      // Keep the last good display offline or after session expiry. Never launch
+      // the app from a scheduled refresh; signing in happens when opened manually.
+    }
   }
 
   static func load() -> TodoDesktopWidgetSnapshot {
@@ -441,15 +458,19 @@ struct TodoDesktopWidgetView: View {
   }
 
   private func openTaskUrl(for task: TodoDesktopWidgetTask) -> URL {
+    if UUID(uuidString: task.id) != nil {
+      return URL(string: "personaltodo://open-task?taskSyncId=\(task.id)")!
+    }
     guard let id = task.databaseId, id > 0 else { return URL(string: "personaltodo://open")! }
     return URL(string: "personaltodo://open-task?taskId=\(id)")!
   }
 
   @ViewBuilder
   private func taskCheckbox(for task: TodoDesktopWidgetTask) -> some View {
-    if let databaseId = task.databaseId {
+    if task.databaseId != nil || UUID(uuidString: task.id) != nil {
       Toggle(isOn: task.isDoneByCurrentUser, intent: CompleteTaskIntent(
-        taskId: databaseId, isCompleted: !task.isDoneByCurrentUser
+        taskId: task.databaseId ?? 0, isCompleted: !task.isDoneByCurrentUser,
+        taskSyncId: UUID(uuidString: task.id) != nil ? task.id : nil
       )) {
         Text(task.title)
       }
@@ -473,8 +494,13 @@ struct TodoDesktopWidgetView: View {
     for subTask: TodoDesktopWidgetSubTask,
     task: TodoDesktopWidgetTask
   ) -> some View {
-    if let taskId = task.databaseId, let subTaskId = subTask.databaseId {
-      Toggle(isOn: false, intent: CompleteSubTaskIntent(taskId: taskId, subTaskId: subTaskId)) {
+    if (task.databaseId != nil && subTask.databaseId != nil)
+        || (UUID(uuidString: task.id) != nil && UUID(uuidString: subTask.id) != nil) {
+      Toggle(isOn: false, intent: CompleteSubTaskIntent(
+        taskId: task.databaseId ?? 0, subTaskId: subTask.databaseId ?? 0,
+        taskSyncId: UUID(uuidString: task.id) != nil ? task.id : nil,
+        subTaskSyncId: UUID(uuidString: subTask.id) != nil ? subTask.id : nil
+      )) {
         Text(subTask.title)
       }
       .toggleStyle(TodoDesktopCheckboxStyle(

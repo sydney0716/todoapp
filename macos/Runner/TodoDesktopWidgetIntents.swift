@@ -12,14 +12,18 @@ struct CompleteTaskIntent: AppIntent {
   @Parameter(title: "Task ID")
   var taskId: Int
 
+  @Parameter(title: "Task Sync ID")
+  var taskSyncId: String?
+
   @Parameter(title: "Completed", default: true)
   var isCompleted: Bool
 
   init() {}
 
-  init(taskId: Int, isCompleted: Bool) {
+  init(taskId: Int, isCompleted: Bool, taskSyncId: String? = nil) {
     self.taskId = taskId
     self.isCompleted = isCompleted
+    self.taskSyncId = taskSyncId
   }
 
   func perform() async throws -> some IntentResult {
@@ -27,7 +31,8 @@ struct CompleteTaskIntent: AppIntent {
       type: "set_task_completion",
       taskId: taskId,
       subTaskId: nil,
-      isCompleted: isCompleted
+      isCompleted: isCompleted,
+      taskSyncId: taskSyncId
     )
     WidgetCenter.shared.reloadAllTimelines()
     await TodoDesktopWidgetActionStore.wakeAppInBackground()
@@ -46,18 +51,28 @@ struct CompleteSubTaskIntent: AppIntent {
   @Parameter(title: "Subtask ID")
   var subTaskId: Int
 
+  @Parameter(title: "Task Sync ID")
+  var taskSyncId: String?
+
+  @Parameter(title: "Subtask Sync ID")
+  var subTaskSyncId: String?
+
   init() {}
 
-  init(taskId: Int, subTaskId: Int) {
+  init(taskId: Int, subTaskId: Int, taskSyncId: String? = nil, subTaskSyncId: String? = nil) {
     self.taskId = taskId
     self.subTaskId = subTaskId
+    self.taskSyncId = taskSyncId
+    self.subTaskSyncId = subTaskSyncId
   }
 
   func perform() async throws -> some IntentResult {
     try TodoDesktopWidgetActionStore.enqueue(
       type: "complete_subtask",
       taskId: taskId,
-      subTaskId: subTaskId
+      subTaskId: subTaskId,
+      taskSyncId: taskSyncId,
+      subTaskSyncId: subTaskSyncId
     )
     WidgetCenter.shared.reloadAllTimelines()
     await TodoDesktopWidgetActionStore.wakeAppInBackground()
@@ -84,7 +99,8 @@ enum TodoDesktopWidgetActionStore {
     }
   }
 
-  static func enqueue(type: String, taskId: Int, subTaskId: Int?, isCompleted: Bool? = nil) throws {
+  static func enqueue(type: String, taskId: Int, subTaskId: Int?, isCompleted: Bool? = nil,
+                      taskSyncId: String? = nil, subTaskSyncId: String? = nil) throws {
     guard let directory = actionsDirectory() else { throw CocoaError(.fileNoSuchFile) }
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     let action = TodoDesktopWidgetAction(
@@ -93,7 +109,8 @@ enum TodoDesktopWidgetActionStore {
       taskId: taskId,
       subTaskId: subTaskId,
       isCompleted: isCompleted,
-      createdAtMillis: Date().timeIntervalSince1970 * 1000
+      createdAtMillis: Date().timeIntervalSince1970 * 1000,
+      taskSyncId: taskSyncId, subTaskSyncId: subTaskSyncId
     )
     try JSONEncoder().encode(action).write(
       to: directory.appendingPathComponent(action.id + ".json"),

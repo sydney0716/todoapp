@@ -29,6 +29,46 @@ class NativeWidgetBridge {
   static Future<void> Function(String, Map<String, Object?>)? _actionHandler;
   static StreamSubscription<Uri?>? _phoneWidgetClicks;
 
+  static Future<void> updateMacWidgetSyncContext({
+    required String apiBaseUrl,
+    required String refreshToken,
+    required String deviceId,
+    required String currentUserId,
+    required List<TodoTask> tasks,
+    required List<TodoTask> trashTasks,
+  }) async {
+    if (!_isMacOS) return;
+    final context = refreshToken.isEmpty || deviceId.isEmpty
+        ? null
+        : jsonEncode({
+            'apiBaseUrl': apiBaseUrl,
+            'refreshToken': refreshToken,
+            'deviceId': deviceId,
+            'localTasks': [
+              for (final task in [...tasks, ...trashTasks])
+                {
+                  'task': _widgetTaskJson(
+                    task,
+                    currentUserId: currentUserId,
+                    limitSubTasks: false,
+                  ),
+                  'isPending': task.syncStatus != SyncStatus.synced,
+                  'isHidden': task.isCompleted || task.deletedAt != null,
+                  'subTaskDatabaseIds': {
+                    for (final child in task.subTasks) child.syncId: child.id,
+                  },
+                },
+            ],
+          });
+    try {
+      await _channel.invokeMethod<void>('updateWidgetSyncContext', context);
+    } on MissingPluginException {
+      return;
+    } on PlatformException {
+      return;
+    }
+  }
+
   static Future<String?> consumeInitialAction() async {
     if (!_isAndroid && !_isIOS) return null;
 
@@ -193,35 +233,39 @@ class NativeWidgetBridge {
       'themeMode': _macWidgetThemeMode,
       'openTaskCount': openTasks.length,
       'calendarDueDates': calendarDueDates,
-      'tasks': [
-        for (final task in openTasks.take(8))
-          {
-            'id': task.syncId.isNotEmpty ? task.syncId : task.id.toString(),
-            'databaseId': task.id,
-            'title': task.title,
-            'requiresBothSharedCompletion': task.requiresBothSharedCompletion,
-            'isPartiallyCompleted': task.isPartiallyCompleted,
-            'isCompletedByCurrentUser': task.isCompletedByUser(
-              _macWidgetCurrentUserId,
-            ),
-            'dueAtMillis': task.dueDateTime?.millisecondsSinceEpoch,
-            'subTasks': [
-              for (final subTask in task.subTasks
-                  .where((subTask) => !subTask.isCompleted)
-                  .take(2))
-                {
-                  'id': subTask.syncId.isNotEmpty
-                      ? subTask.syncId
-                      : subTask.id.toString(),
-                  'databaseId': subTask.id,
-                  'title': subTask.title,
-                  'dueAtMillis': subTask.dueDateTime?.millisecondsSinceEpoch,
-                },
-            ],
-          },
-      ],
+      'tasks': [for (final task in openTasks.take(8)) _widgetTaskJson(task)],
     });
   }
+
+  static Map<String, Object?> _widgetTaskJson(
+    TodoTask task, {
+    String? currentUserId,
+    bool limitSubTasks = true,
+  }) =>
+      {
+        'id': task.syncId.isNotEmpty ? task.syncId : task.id.toString(),
+        'databaseId': task.id,
+        'title': task.title,
+        'requiresBothSharedCompletion': task.requiresBothSharedCompletion,
+        'isPartiallyCompleted': task.isPartiallyCompleted,
+        'isCompletedByCurrentUser': task.isCompletedByUser(
+          currentUserId ?? _macWidgetCurrentUserId,
+        ),
+        'dueAtMillis': task.dueDateTime?.millisecondsSinceEpoch,
+        'subTasks': [
+          for (final subTask in task.subTasks
+              .where((subTask) => !subTask.isCompleted)
+              .take(limitSubTasks ? 2 : task.subTasks.length))
+            {
+              'id': subTask.syncId.isNotEmpty
+                  ? subTask.syncId
+                  : subTask.id.toString(),
+              'databaseId': subTask.id,
+              'title': subTask.title,
+              'dueAtMillis': subTask.dueDateTime?.millisecondsSinceEpoch,
+            },
+        ],
+      };
 
   static List<int> _calendarDueDateMillis(Iterable<TodoTask> tasks) {
     final dates = <int>{};

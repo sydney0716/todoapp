@@ -37,6 +37,23 @@ final class TodoDesktopWidgetBridge {
 
     channel.setMethodCallHandler { call, result in
       switch call.method {
+      case "updateWidgetSyncContext":
+        do {
+          guard let url = TodoDesktopWidgetFiles.contextURL else {
+            throw CocoaError(.fileNoSuchFile)
+          }
+          if let json = call.arguments as? String, let data = json.data(using: .utf8) {
+            _ = try JSONDecoder().decode(TodoDesktopWidgetSyncContext.self, from: data)
+            if (try? Data(contentsOf: url)) != data {
+              try TodoDesktopWidgetFiles.save(data, to: url)
+            }
+          } else if FileManager.default.fileExists(atPath: url.path) {
+            try FileManager.default.removeItem(at: url)
+          }
+          result(nil)
+        } catch {
+          result(FlutterError(code: "widget_sync_context", message: "Could not update widget session.", details: nil))
+        }
       case "updateWidgetSnapshot":
         guard let snapshotJson = call.arguments as? String else {
           result(
@@ -94,7 +111,7 @@ final class TodoDesktopWidgetBridge {
     )
 
     do {
-      try snapshotData.write(to: snapshotUrl, options: .atomic)
+        try TodoDesktopWidgetFiles.save(snapshotData, to: snapshotUrl)
     } catch {
       NSLog("[TodoDesktopWidgetBridge] failed to write snapshot: %@", error.localizedDescription)
     }
@@ -126,11 +143,20 @@ final class TodoDesktopWidgetBridge {
     case "open":
       action["type"] = openAppAction
     case "open-task":
-      guard let taskId = intQueryItem(named: "taskId", in: queryItems), taskId > 0 else {
-        return nil
+      let syncId = queryItems?.first(where: { $0.name == "taskSyncId" })?.value
+      guard let syncId, UUID(uuidString: syncId) != nil else {
+        guard let taskId = intQueryItem(named: "taskId", in: queryItems), taskId > 0 else {
+          return nil
+        }
+        action["type"] = openTaskAction
+        action["taskId"] = taskId
+        break
       }
       action["type"] = openTaskAction
-      action["taskId"] = taskId
+      action["taskSyncId"] = syncId
+      if let taskId = intQueryItem(named: "taskId", in: queryItems) {
+        action["taskId"] = taskId
+      }
     case "create-task":
       action["type"] = openNewTaskAction
       if

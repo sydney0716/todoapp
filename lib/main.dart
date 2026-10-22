@@ -94,23 +94,27 @@ class _PersonalTodoAppState extends State<PersonalTodoApp> {
     super.initState();
     _syncCurrentUser();
     final service = TodoSyncService(
-        repository: widget.repository, settings: widget.settings);
+      repository: widget.repository,
+      settings: widget.settings,
+    );
     _sync = TodoSyncCoordinator(
-        repository: widget.repository,
-        settings: widget.settings,
-        connectivityChanges: widget.connectivityChanges,
-        backgroundPollInterval:
-            !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS
-                ? backgroundRefreshInterval
-                : null,
-        runner: (snapshot) =>
-            widget.periodicSyncRunner?.call() ??
-            service.syncNow(reconcileSnapshot: snapshot))
-      ..start();
+      repository: widget.repository,
+      settings: widget.settings,
+      connectivityChanges: widget.connectivityChanges,
+      backgroundPollInterval:
+          !kIsWeb && defaultTargetPlatform == TargetPlatform.macOS
+              ? backgroundRefreshInterval
+              : null,
+      runner: (snapshot) =>
+          widget.periodicSyncRunner?.call() ??
+          service.syncNow(reconcileSnapshot: snapshot),
+    )..start();
     widget.settings.addListener(_syncCurrentUser);
     widget.settings.addListener(_syncTaskNotifications);
     widget.settings.addListener(_handleSessionChanged);
+    widget.settings.addListener(_syncMacWidgetContext);
     widget.repository.addListener(_syncTaskNotifications);
+    widget.repository.addListener(_syncMacWidgetContext);
     NativeWidgetBridge.setActionHandler(_handleNativeWidgetAction);
     _lifecycleObserver = _AppLifecycleObserver(
       onResumed: () => unawaited(_handleAppResumed()),
@@ -129,7 +133,9 @@ class _PersonalTodoAppState extends State<PersonalTodoApp> {
     widget.settings.removeListener(_syncCurrentUser);
     widget.settings.removeListener(_syncTaskNotifications);
     widget.settings.removeListener(_handleSessionChanged);
+    widget.settings.removeListener(_syncMacWidgetContext);
     widget.repository.removeListener(_syncTaskNotifications);
+    widget.repository.removeListener(_syncMacWidgetContext);
     WidgetsBinding.instance.removeObserver(_lifecycleObserver);
     _sync.dispose();
     NativeWidgetBridge.clearActionHandler();
@@ -142,8 +148,9 @@ class _PersonalTodoAppState extends State<PersonalTodoApp> {
     await _sync.waitUntilIdle();
     await widget.settings.reload();
     await MobileBackgroundSync.consumePhoneWidgetActions(widget.repository);
-    await widget.repository
-        .reload(refreshNativeWidget: _nativeWidgetStartupComplete);
+    await widget.repository.reload(
+      refreshNativeWidget: _nativeWidgetStartupComplete,
+    );
     if (!mounted) return;
     _sync.setForeground(true);
     unawaited(_showReconnect());
@@ -199,6 +206,7 @@ class _PersonalTodoAppState extends State<PersonalTodoApp> {
   }
 
   Future<void> _syncNativeWidgetStartup() async {
+    _syncMacWidgetContext();
     await _consumeInitialNativeWidgetAction();
     if (!mounted) return;
 
@@ -211,10 +219,54 @@ class _PersonalTodoAppState extends State<PersonalTodoApp> {
     _nativeWidgetStartupComplete = true;
   }
 
+  void _syncMacWidgetContext() {
+    unawaited(
+      NativeWidgetBridge.updateMacWidgetSyncContext(
+        apiBaseUrl: widget.settings.apiBaseUrl,
+        refreshToken: widget.settings.refreshToken,
+        deviceId: widget.settings.authDeviceId,
+        currentUserId: widget.settings.currentUserId,
+        tasks: widget.repository.tasks,
+        trashTasks: widget.repository.trashTasks,
+      ),
+    );
+  }
+
   Future<void> _handleNativeWidgetAction(
     String action,
     Map<String, Object?> arguments,
   ) async {
+    // A widget can now see server tasks before this app has downloaded them.
+    final syncId = arguments['taskSyncId'];
+    if (syncId is String && isUuidLike(syncId)) {
+      await widget.repository.reload(refreshNativeWidget: false);
+      TodoTask? findTask() {
+        for (final task in widget.repository.tasks) {
+          if (task.syncId == syncId) return task;
+        }
+        return null;
+      }
+
+      var task = findTask();
+      final childSyncId = arguments['subTaskSyncId'];
+      if (task == null ||
+          (childSyncId is String &&
+              !task.subTasks.any((child) => child.syncId == childSyncId))) {
+        await _sync.syncNow(reconcileSnapshot: true);
+        task = findTask();
+      }
+      if (task == null) {
+        return; // Deleted remotely; there is nothing to open/change.
+      }
+      arguments = {...arguments, 'taskId': task.id};
+      if (childSyncId is String) {
+        final children = task.subTasks.where(
+          (child) => child.syncId == childSyncId,
+        );
+        if (children.isEmpty) return;
+        arguments['subTaskId'] = children.first.id;
+      }
+    }
     switch (action) {
       case NativeWidgetBridge.openAppAction:
         return;
@@ -232,8 +284,10 @@ class _PersonalTodoAppState extends State<PersonalTodoApp> {
       case NativeWidgetBridge.completeTaskAction:
         final taskId = _intArgument(arguments, 'taskId');
         if (taskId == null) return;
-        final didChange = await widget.repository
-            .markTaskDoneById(taskId, actionId: arguments['id'] as String?);
+        final didChange = await widget.repository.markTaskDoneById(
+          taskId,
+          actionId: arguments['id'] as String?,
+        );
         if (didChange) {
           unawaited(_syncNativeWidgetMutation());
         }
@@ -242,8 +296,11 @@ class _PersonalTodoAppState extends State<PersonalTodoApp> {
         final taskId = _intArgument(arguments, 'taskId');
         final isCompleted = arguments['isCompleted'];
         if (taskId == null || isCompleted is! bool) return;
-        final didChange = await widget.repository.setTaskCompletionById(taskId,
-            isCompleted: isCompleted, actionId: arguments['id'] as String?);
+        final didChange = await widget.repository.setTaskCompletionById(
+          taskId,
+          isCompleted: isCompleted,
+          actionId: arguments['id'] as String?,
+        );
         if (didChange) {
           unawaited(_syncNativeWidgetMutation());
         }
@@ -253,10 +310,14 @@ class _PersonalTodoAppState extends State<PersonalTodoApp> {
         if (taskId == null) return;
         final task = widget.repository.getTask(taskId);
         final didChange = task?.requiresBothSharedCompletion == true
-            ? await widget.repository.toggleSharedTaskCompletionById(taskId,
-                actionId: arguments['id'] as String?)
-            : await widget.repository
-                .markTaskDoneById(taskId, actionId: arguments['id'] as String?);
+            ? await widget.repository.toggleSharedTaskCompletionById(
+                taskId,
+                actionId: arguments['id'] as String?,
+              )
+            : await widget.repository.markTaskDoneById(
+                taskId,
+                actionId: arguments['id'] as String?,
+              );
         if (didChange) {
           unawaited(_syncNativeWidgetMutation());
         }
@@ -266,8 +327,10 @@ class _PersonalTodoAppState extends State<PersonalTodoApp> {
         final subTaskId = _intArgument(arguments, 'subTaskId');
         if (taskId == null || subTaskId == null) return;
         final didChange = await widget.repository.markSubTaskDoneById(
-            taskId, subTaskId,
-            actionId: arguments['id'] as String?);
+          taskId,
+          subTaskId,
+          actionId: arguments['id'] as String?,
+        );
         if (didChange) {
           unawaited(_syncNativeWidgetMutation());
         }
@@ -298,7 +361,9 @@ class _PersonalTodoAppState extends State<PersonalTodoApp> {
     if (!_sync.canSync) return;
     try {
       await _sync.syncNow();
-    } on Object {/* Coordinator exposes sync errors. */}
+    } on Object {
+      /* Coordinator exposes sync errors. */
+    }
   }
 
   Future<void> _openNewTaskFromWidget({DateTime? initialDueDate}) async {
@@ -363,8 +428,9 @@ class _PersonalTodoAppState extends State<PersonalTodoApp> {
           debugShowCheckedModeBanner: false,
           title: strings.appTitle,
           locale: widget.settings.language.locale,
-          supportedLocales:
-              AppLanguage.values.map((language) => language.locale),
+          supportedLocales: AppLanguage.values.map(
+            (language) => language.locale,
+          ),
           localizationsDelegates: const [
             GlobalMaterialLocalizations.delegate,
             GlobalCupertinoLocalizations.delegate,
@@ -400,36 +466,48 @@ class _PersonalTodoAppState extends State<PersonalTodoApp> {
     final isKorean = widget.settings.language == AppLanguage.korean;
     String? error;
     final value = await showDialog<String>(
-        context: context,
-        builder: (context) => StatefulBuilder(
-            builder: (context, setState) => AlertDialog(
-                  title: Text(isKorean ? '서버 주소' : 'Server address'),
-                  content: Column(mainAxisSize: MainAxisSize.min, children: [
-                    Text(isKorean
-                        ? '주소를 변경하면 현재 기기의 할 일을 새 서버로 동기화하며 다시 로그인해야 합니다.'
-                        : 'Changing the address keeps this device’s tasks for syncing to the new server and requires signing in again.'),
-                    TextField(
-                        controller: controller,
-                        keyboardType: TextInputType.url,
-                        autocorrect: false,
-                        decoration: InputDecoration(errorText: error)),
-                  ]),
-                  actions: [
-                    TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: Text(isKorean ? '취소' : 'Cancel')),
-                    FilledButton(
-                        onPressed: () {
-                          try {
-                            Navigator.pop(context,
-                                validateTodoApiBaseUrl(controller.text));
-                          } on FormatException catch (e) {
-                            setState(() => error = e.message);
-                          }
-                        },
-                        child: Text(isKorean ? '저장' : 'Save'))
-                  ],
-                )));
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: Text(isKorean ? '서버 주소' : 'Server address'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                isKorean
+                    ? '주소를 변경하면 현재 기기의 할 일을 새 서버로 동기화하며 다시 로그인해야 합니다.'
+                    : 'Changing the address keeps this device’s tasks for syncing to the new server and requires signing in again.',
+              ),
+              TextField(
+                controller: controller,
+                keyboardType: TextInputType.url,
+                autocorrect: false,
+                decoration: InputDecoration(errorText: error),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text(isKorean ? '취소' : 'Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                try {
+                  Navigator.pop(
+                    context,
+                    validateTodoApiBaseUrl(controller.text),
+                  );
+                } on FormatException catch (e) {
+                  setState(() => error = e.message);
+                }
+              },
+              child: Text(isKorean ? '저장' : 'Save'),
+            ),
+          ],
+        ),
+      ),
+    );
     controller.dispose();
     if (value == null || value == widget.settings.apiBaseUrl) return;
     _sync.setForeground(false);
@@ -453,17 +531,19 @@ class _PersonalTodoAppState extends State<PersonalTodoApp> {
     if (navigator == null) return;
     _reconnectVisible = true;
     try {
-      await navigator.push(MaterialPageRoute<void>(
+      await navigator.push(
+        MaterialPageRoute<void>(
           builder: (_) => LoginScreen(
-                accounts: appAccounts
-                    .where((account) =>
-                        account.id == widget.settings.currentUserId)
-                    .toList(),
-                onLogin: (account, password) async {
-                  await _handleLogin(account, password);
-                  if (navigator.mounted) navigator.pop();
-                },
-              )));
+            accounts: appAccounts
+                .where((account) => account.id == widget.settings.currentUserId)
+                .toList(),
+            onLogin: (account, password) async {
+              await _handleLogin(account, password);
+              if (navigator.mounted) navigator.pop();
+            },
+          ),
+        ),
+      );
     } finally {
       _reconnectVisible = false;
     }

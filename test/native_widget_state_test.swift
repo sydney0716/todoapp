@@ -60,6 +60,29 @@ struct NativeWidgetStateTest {
     expect(childCompleted.tasks[0].visibleSubTasks.map(\.databaseId) == [12]
            && childCompleted.openTaskCount == 1,
            "Completing a child must remove only that child, preserving the parent")
+
+    let remote = TodoDesktopWidgetTask(
+      id: "remote-task", databaseId: nil, title: "New on server",
+      requiresBothSharedCompletion: false, isPartiallyCompleted: false,
+      isCompletedByCurrentUser: false, dueAtMillis: nil,
+      subTasks: [.init(id: "remote-child", databaseId: nil, title: "New child", dueAtMillis: nil)]
+    )
+    let remoteSource = snapshot([remote])
+    let remoteCheck = TodoDesktopWidgetAction(
+      id: "remote-check", type: "set_task_completion", taskId: 0, subTaskId: nil,
+      isCompleted: true, createdAtMillis: 1, taskSyncId: remote.id
+    )
+    expect(remoteSource.applying([remoteCheck]).tasks.isEmpty,
+           "Checking a newly fetched task must update the widget before it has a local ID")
+    let remoteChildCheck = TodoDesktopWidgetAction(
+      id: "remote-child-check", type: "complete_subtask", taskId: 0, subTaskId: 0,
+      isCompleted: nil, createdAtMillis: 1, taskSyncId: remote.id, subTaskSyncId: "remote-child"
+    )
+    expect(remoteSource.applying([remoteChildCheck]).tasks[0].visibleSubTasks.isEmpty,
+           "A newly fetched child must be completable using its stable sync ID")
+    let encoded = try! JSONEncoder().encode(remoteCheck)
+    expect(try! JSONDecoder().decode(TodoDesktopWidgetAction.self, from: encoded).taskSyncId == remote.id,
+           "Stable IDs must survive the durable action queue")
     print("Native widget state checks passed")
   }
 

@@ -109,18 +109,21 @@ struct TodoDesktopWidgetAction: Codable {
   let subTaskId: Int?
   let isCompleted: Bool?
   let createdAtMillis: Double
+  var taskSyncId: String? = nil
+  var subTaskSyncId: String? = nil
 }
 
 extension TodoDesktopWidgetSnapshot {
   // Preview durable, unacknowledged changes without overwriting the app's snapshot.
   func applying(_ actions: [TodoDesktopWidgetAction]) -> TodoDesktopWidgetSnapshot {
-    var completionStates: [Int: Bool] = [:]
-    var completedSubTasks: [Int: Set<Int>] = [:]
+    var completionStates: [String: Bool] = [:]
+    var completedSubTasks: [String: Set<String>] = [:]
     for action in actions.sorted(by: { $0.createdAtMillis < $1.createdAtMillis }) {
+      let taskKey = action.taskSyncId ?? String(action.taskId)
       if action.type == "set_task_completion", let completed = action.isCompleted {
-        completionStates[action.taskId] = completed
+        completionStates[taskKey] = completed
       } else if action.type == "complete_subtask", let subTaskId = action.subTaskId {
-        completedSubTasks[action.taskId, default: []].insert(subTaskId)
+        completedSubTasks[taskKey, default: []].insert(action.subTaskSyncId ?? String(subTaskId))
       }
     }
 
@@ -128,7 +131,8 @@ extension TodoDesktopWidgetSnapshot {
     var removedCount = 0
     snapshot.tasks = tasks.compactMap { original in
       var task = original
-      if let taskId = task.databaseId, let completed = completionStates[taskId] {
+      let localKey = task.databaseId.map(String.init) ?? ""
+      if let completed = completionStates[task.id] ?? completionStates[localKey] {
         if task.needsBothToComplete {
           let partnerCompleted = task.isPartiallyDone && !task.isDoneByCurrentUser
           if completed && partnerCompleted {
@@ -142,10 +146,9 @@ extension TodoDesktopWidgetSnapshot {
           return nil
         }
       }
-      if let taskId = task.databaseId, let children = completedSubTasks[taskId] {
+      if let children = completedSubTasks[task.id] ?? completedSubTasks[localKey] {
         task.subTasks = task.visibleSubTasks.filter { child in
-          guard let id = child.databaseId else { return true }
-          return !children.contains(id)
+          !children.contains(child.id) && !children.contains(child.databaseId.map(String.init) ?? "")
         }
       }
       return task
