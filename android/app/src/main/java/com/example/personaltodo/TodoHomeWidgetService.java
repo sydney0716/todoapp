@@ -100,6 +100,8 @@ public class TodoHomeWidgetService extends RemoteViewsService {
                             "setBackgroundColor",
                             palette.separatorColor
                     );
+                    separator.setOnClickFillInIntent(R.id.widgetSeparator,
+                            TodoHomeWidgetProvider.navigationIntent(0));
                     return separator;
                 default:
                     return null;
@@ -157,11 +159,11 @@ public class TodoHomeWidgetService extends RemoteViewsService {
                     currentUserId,
                     !row.requiresBoth || row.doneByPartner
             );
-            // Clear row-wide actions when launchers reuse previously rendered views.
-            views.setOnClickFillInIntent(R.id.widgetTaskRow, null);
+            Intent navigationIntent = TodoHomeWidgetProvider.navigationIntent(row.taskId);
+            views.setOnClickFillInIntent(R.id.widgetTaskRow, navigationIntent);
             views.setOnClickFillInIntent(R.id.widgetTaskCheckbox, fillInIntent);
-            views.setOnClickFillInIntent(R.id.widgetTaskTitle, null);
-            views.setOnClickFillInIntent(R.id.widgetTaskDueDate, null);
+            views.setOnClickFillInIntent(R.id.widgetTaskTitle, navigationIntent);
+            views.setOnClickFillInIntent(R.id.widgetTaskDueDate, navigationIntent);
             return views;
         }
 
@@ -192,10 +194,11 @@ public class TodoHomeWidgetService extends RemoteViewsService {
                     currentUserId,
                     false
             );
-            views.setOnClickFillInIntent(R.id.widgetSubTaskRow, null);
+            Intent navigationIntent = TodoHomeWidgetProvider.navigationIntent(row.taskId);
+            views.setOnClickFillInIntent(R.id.widgetSubTaskRow, navigationIntent);
             views.setOnClickFillInIntent(R.id.widgetSubTaskCheckbox, fillInIntent);
-            views.setOnClickFillInIntent(R.id.widgetSubTaskTitle, null);
-            views.setOnClickFillInIntent(R.id.widgetSubTaskDueDate, null);
+            views.setOnClickFillInIntent(R.id.widgetSubTaskTitle, navigationIntent);
+            views.setOnClickFillInIntent(R.id.widgetSubTaskDueDate, navigationIntent);
             return views;
         }
 
@@ -209,6 +212,8 @@ public class TodoHomeWidgetService extends RemoteViewsService {
                     "+ " + row.hiddenCount + " more task ..."
             );
             views.setTextColor(R.id.widgetMoreText, palette.accentColor);
+            views.setOnClickFillInIntent(R.id.widgetMoreText,
+                    TodoHomeWidgetProvider.navigationIntent(row.taskId));
             return views;
         }
 
@@ -280,6 +285,7 @@ public class TodoHomeWidgetService extends RemoteViewsService {
             List<TaskItem> tasks = new ArrayList<>();
             boolean hasCompletion = hasColumn(database, "tasks", "sharedCompletionMode");
             boolean hasSubTaskDueDate = hasColumn(database, "subtasks", "dueDateTime");
+            boolean hasSubTaskPosition = hasColumn(database, "subtasks", "position");
             boolean canFilterByOwner = hasColumn(database, "tasks", "visibility")
                     && hasColumn(database, "tasks", "ownerUserId");
             boolean includeLegacyPrivateTasks =
@@ -317,7 +323,7 @@ public class TodoHomeWidgetService extends RemoteViewsService {
                             taskId,
                             title,
                             dueDateTimeMillis,
-                            readSubTasks(database, taskId, hasSubTaskDueDate, pending),
+                            readSubTasks(database, taskId, hasSubTaskDueDate, hasSubTaskPosition, pending),
                             requiresBoth,
                             doneByCurrentUser,
                             doneByPartner
@@ -352,12 +358,13 @@ public class TodoHomeWidgetService extends RemoteViewsService {
                 SQLiteDatabase database,
                 long taskId,
                 boolean hasDueDateColumn,
+                boolean hasPositionColumn,
                 TodoWidgetActionStore.PendingActions pending
         ) {
             List<SubTaskItem> subTasks = new ArrayList<>();
             int totalCount = 0;
             String dueDateColumn = hasDueDateColumn ? "dueDateTime" : "NULL";
-            String orderBy = hasColumn(database, "subtasks", "position") ? "position ASC, createdAt ASC, id ASC" : "id ASC";
+            String orderBy = hasPositionColumn ? "position ASC, createdAt ASC, id ASC" : "id ASC";
             try (Cursor cursor = database.rawQuery(
                     "SELECT id, taskId, title, " + dueDateColumn + " FROM subtasks "
                             + "WHERE taskId = ? AND deletedAt IS NULL AND isCompleted = 0 "

@@ -12,15 +12,19 @@ final class TodoDesktopWidgetBridge {
     "TodoDesktopCalendarOnlyWidget",
   ]
   private static let openNewTaskAction = "open_new_task"
+  private static let openAppAction = "open_app"
+  private static let openTaskAction = "open_task"
   private static let completeTaskAction = "complete_task"
   private static let completeSubTaskAction = "complete_subtask"
   private static var actionObserver: NSObjectProtocol?
+  private static var actionChannel: FlutterMethodChannel?
 
   static func register(with messenger: FlutterBinaryMessenger) {
     let channel = FlutterMethodChannel(
       name: channelName,
       binaryMessenger: messenger
     )
+    actionChannel = channel
     if let observer = actionObserver {
       DistributedNotificationCenter.default().removeObserver(observer)
     }
@@ -31,13 +35,7 @@ final class TodoDesktopWidgetBridge {
       channel.invokeMethod("widgetActionsAvailable", arguments: nil)
     }
 
-    NSLog("[TodoDesktopWidgetBridge] registered on channel: %@", channelName)
-
     channel.setMethodCallHandler { call, result in
-      if call.method != "consumePendingWidgetActions" {
-        NSLog("[TodoDesktopWidgetBridge] received method call: %@", call.method)
-      }
-
       switch call.method {
       case "updateWidgetSnapshot":
         guard let snapshotJson = call.arguments as? String else {
@@ -74,6 +72,7 @@ final class TodoDesktopWidgetBridge {
     }
 
     appendPendingActions(actions)
+    actionChannel?.invokeMethod("widgetActionsAvailable", arguments: nil)
   }
 
   private static func saveSnapshot(_ snapshotJson: String) {
@@ -96,7 +95,6 @@ final class TodoDesktopWidgetBridge {
 
     do {
       try snapshotData.write(to: snapshotUrl, options: .atomic)
-      NSLog("[TodoDesktopWidgetBridge] wrote snapshot to %@ (%d bytes)", snapshotUrl.path, snapshotData.count)
     } catch {
       NSLog("[TodoDesktopWidgetBridge] failed to write snapshot: %@", error.localizedDescription)
     }
@@ -125,6 +123,14 @@ final class TodoDesktopWidgetBridge {
 
     let command = url.host ?? url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
     switch command {
+    case "open":
+      action["type"] = openAppAction
+    case "open-task":
+      guard let taskId = intQueryItem(named: "taskId", in: queryItems), taskId > 0 else {
+        return nil
+      }
+      action["type"] = openTaskAction
+      action["taskId"] = taskId
     case "create-task":
       action["type"] = openNewTaskAction
       if

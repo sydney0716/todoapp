@@ -6,6 +6,21 @@ struct NativeWidgetStateTest {
   static func main() {
     let single = task(1)
     let source = snapshot([single], count: 5)
+    let now = Date(timeIntervalSince1970: 10_000)
+    expect(source.needsBackgroundRefresh(at: now, lastAttempt: nil),
+           "A missing snapshot must request a background refresh")
+    expect(!source.needsBackgroundRefresh(at: now, lastAttempt: now.addingTimeInterval(-60)),
+           "Timeline reloads must not repeatedly wake the app while offline")
+    expect(source.needsBackgroundRefresh(at: now, lastAttempt: now.addingTimeInterval(-7200)),
+           "Background refresh must become eligible after two hours")
+    let fresh = TodoDesktopWidgetSnapshot(
+      updatedAtMillis: now.timeIntervalSince1970 * 1000,
+      languageCode: nil, themeMode: nil, openTaskCount: 0, calendarDueDates: nil, tasks: []
+    )
+    expect(!fresh.needsBackgroundRefresh(at: now, lastAttempt: nil),
+           "A recent app snapshot must not wake the app")
+    expect(fresh.needsBackgroundRefresh(at: now.addingTimeInterval(7200), lastAttempt: nil),
+           "An old app snapshot must fetch changes even when the app was closed")
     let check = action(1, completed: true)
     let checked = source.applying([check, check])
     expect(checked.tasks.isEmpty && checked.openTaskCount == 4,

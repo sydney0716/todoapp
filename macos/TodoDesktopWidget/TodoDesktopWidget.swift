@@ -95,14 +95,17 @@ struct TodoDesktopWidgetProvider: TimelineProvider {
     in context: Context,
     completion: @escaping (Timeline<TodoDesktopWidgetEntry>) -> Void
   ) {
-    let entry = entry(date: Date(), snapshot: TodoDesktopWidgetStore.load())
-    let nextRefresh = Calendar.current.date(
-      byAdding: .hour,
-      value: 2,
-      to: Date()
-    ) ?? Date().addingTimeInterval(7200)
+    let now = Date()
+    let snapshot = TodoDesktopWidgetStore.load()
+    let entry = entry(date: now, snapshot: snapshot)
+    let nextRefresh = now.addingTimeInterval(TodoDesktopWidgetSnapshot.refreshInterval)
 
-    completion(Timeline(entries: [entry], policy: .after(nextRefresh)))
+    Task { @MainActor in
+      if !context.isPreview {
+        TodoDesktopWidgetStore.refreshInBackgroundIfNeeded(snapshot, at: now)
+      }
+      completion(Timeline(entries: [entry], policy: .after(nextRefresh)))
+    }
   }
 
   private func entry(
@@ -140,6 +143,20 @@ struct ToggleWidgetModeIntent: AppIntent {
 }
 
 private enum TodoDesktopWidgetStore {
+  @MainActor
+  static func refreshInBackgroundIfNeeded(
+    _ snapshot: TodoDesktopWidgetSnapshot, at now: Date
+  ) {
+    guard let defaults = UserDefaults(suiteName: appGroupId) else { return }
+    let key = "todo_widget_last_background_refresh"
+    let lastAttempt = defaults.object(forKey: key) as? Date
+    guard snapshot.needsBackgroundRefresh(at: now, lastAttempt: lastAttempt) else { return }
+    // All widget variants share the throttle, including when the server is offline.
+    defaults.set(now, forKey: key)
+    defaults.synchronize()
+    TodoDesktopWidgetActionStore.wakeAppInBackground()
+  }
+
   static func load() -> TodoDesktopWidgetSnapshot {
     let pending = TodoDesktopWidgetActionStore.pendingActions()
     return (loadFromFile() ?? .empty).applying(pending)
@@ -282,6 +299,7 @@ struct TodoDesktopWidgetView: View {
     .widgetAccentable(false)
     .tint(widgetAccentColor)
     .environment(\.colorScheme, resolvedColorScheme)
+    .widgetURL(URL(string: "personaltodo://open"))
     .containerBackground(for: .widget) {
       widgetBackground
         .ignoresSafeArea()
@@ -368,19 +386,25 @@ struct TodoDesktopWidgetView: View {
     HStack(alignment: .top, spacing: 7) {
       taskCheckbox(for: task)
 
-      Text(task.title)
-        .font(.system(size: 12, weight: .medium))
-        .foregroundStyle(widgetTextColor)
-        .lineLimit(1)
-        .frame(maxWidth: .infinity, alignment: .leading)
+      Link(destination: openTaskUrl(for: task)) {
+        HStack(alignment: .top) {
+          Text(task.title)
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(widgetTextColor)
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-      if let dueText = dueDateText(for: task.dueAtMillis) {
-        Text(dueText)
-          .font(.system(size: 10, weight: .medium))
-          .foregroundStyle(widgetAccentColor)
-          .lineLimit(1)
-          .fixedSize(horizontal: true, vertical: false)
+          if let dueText = dueDateText(for: task.dueAtMillis) {
+            Text(dueText)
+              .font(.system(size: 10, weight: .medium))
+              .foregroundStyle(widgetAccentColor)
+              .lineLimit(1)
+              .fixedSize(horizontal: true, vertical: false)
+          }
+        }
+        .contentShape(Rectangle())
       }
+      .buttonStyle(.plain)
     }
   }
 
@@ -394,20 +418,31 @@ struct TodoDesktopWidgetView: View {
 
       subTaskCheckbox(for: subTask, task: task)
 
-      Text(subTask.title)
-        .font(.system(size: 10, weight: .regular))
-        .foregroundStyle(widgetSecondaryTextColor)
-        .lineLimit(1)
-        .frame(maxWidth: .infinity, alignment: .leading)
+      Link(destination: openTaskUrl(for: task)) {
+        HStack(alignment: .top) {
+          Text(subTask.title)
+            .font(.system(size: 10, weight: .regular))
+            .foregroundStyle(widgetSecondaryTextColor)
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-      if let dueText = dueDateText(for: subTask.dueAtMillis) {
-        Text(dueText)
-          .font(.system(size: 9, weight: .regular))
-          .foregroundStyle(widgetAccentColor)
-          .lineLimit(1)
-          .fixedSize(horizontal: true, vertical: false)
+          if let dueText = dueDateText(for: subTask.dueAtMillis) {
+            Text(dueText)
+              .font(.system(size: 9, weight: .regular))
+              .foregroundStyle(widgetAccentColor)
+              .lineLimit(1)
+              .fixedSize(horizontal: true, vertical: false)
+          }
+        }
+        .contentShape(Rectangle())
       }
+      .buttonStyle(.plain)
     }
+  }
+
+  private func openTaskUrl(for task: TodoDesktopWidgetTask) -> URL {
+    guard let id = task.databaseId, id > 0 else { return URL(string: "personaltodo://open")! }
+    return URL(string: "personaltodo://open-task?taskId=\(id)")!
   }
 
   @ViewBuilder

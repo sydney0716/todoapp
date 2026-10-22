@@ -87,6 +87,7 @@ class _PersonalTodoAppState extends State<PersonalTodoApp> {
   bool _refreshReminderPermissions = false;
   bool _reconnectVisible = false;
   bool _appInactive = false;
+  int? _widgetTaskId;
 
   @override
   void initState() {
@@ -215,6 +216,14 @@ class _PersonalTodoAppState extends State<PersonalTodoApp> {
     Map<String, Object?> arguments,
   ) async {
     switch (action) {
+      case NativeWidgetBridge.openAppAction:
+        return;
+      case NativeWidgetBridge.openTaskAction:
+        final taskId = _intArgument(arguments, 'taskId');
+        if (taskId != null && taskId > 0) {
+          await _openTaskFromWidget(taskId);
+        }
+        return;
       case NativeWidgetBridge.openNewTaskAction:
         await _openNewTaskFromWidget(
           initialDueDate: _dateFromMillisArgument(arguments, 'dueAtMillis'),
@@ -299,14 +308,46 @@ class _PersonalTodoAppState extends State<PersonalTodoApp> {
     final navigator = _navigatorKey.currentState;
     if (navigator == null) return;
 
-    await navigator.push(
-      MaterialPageRoute<void>(
-        builder: (_) => TaskEditorScreen(
-          repository: widget.repository,
-          settings: widget.settings,
-          initialDueDate: initialDueDate,
+    unawaited(
+      navigator.push(
+        MaterialPageRoute<void>(
+          builder: (_) => TaskEditorScreen(
+            repository: widget.repository,
+            settings: widget.settings,
+            initialDueDate: initialDueDate,
+          ),
         ),
       ),
+    );
+  }
+
+  Future<void> _openTaskFromWidget(int taskId) async {
+    await widget.repository.reload();
+    if (!mounted || !_hasStoredSession) return;
+    if (_navigatorKey.currentState == null) {
+      await WidgetsBinding.instance.endOfFrame;
+    }
+    if (!mounted || _widgetTaskId == taskId) return;
+
+    final task = widget.repository.getTask(taskId);
+    final navigator = _navigatorKey.currentState;
+    if (task == null || navigator == null) return;
+
+    _widgetTaskId = taskId;
+    unawaited(
+      navigator
+          .push(
+        MaterialPageRoute<void>(
+          builder: (_) => TaskEditorScreen(
+            repository: widget.repository,
+            settings: widget.settings,
+            task: task,
+          ),
+        ),
+      )
+          .whenComplete(() {
+        if (_widgetTaskId == taskId) _widgetTaskId = null;
+      }),
     );
   }
 
@@ -435,13 +476,11 @@ class _PersonalTodoAppState extends State<PersonalTodoApp> {
       password: password,
       deviceId: widget.repository.deviceId,
     );
-    final taskCount = await widget.repository.reconcileBootstrapTasks(
+    await widget.repository.reconcileBootstrapTasks(
       result.bootstrap.tasks.map((task) => task.toTodoTask()).toList(),
     );
     await widget.settings.recordServerConnectionSuccess(
-      username: account.username,
       cursor: result.bootstrap.cursor,
-      taskCount: taskCount,
       session: result.session,
     );
     _syncCurrentUser();

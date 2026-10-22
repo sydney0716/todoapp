@@ -73,6 +73,7 @@ class LocalTodoRepository extends ChangeNotifier {
   Future<T?> withSyncLock<T>(Future<T> Function() action) async {
     if (kIsWeb) return withBrowserSyncLock(_database.path, action);
     Database? lock;
+    var acquired = false;
     try {
       lock = await openDatabase(
         '${_database.path}.sync_lock.db',
@@ -84,9 +85,14 @@ class LocalTodoRepository extends ChangeNotifier {
         },
         onCreate: (db, _) => db.execute('CREATE TABLE sync_lock (id INTEGER)'),
       );
-      return await lock.transaction((_) => action(), exclusive: true);
+      // Reserve the writer without blocking another engine from opening the
+      // lock database (Android reads journal_mode while opening a connection).
+      return await lock.transaction((_) {
+        acquired = true;
+        return action();
+      }, exclusive: false);
     } on DatabaseException catch (error) {
-      if (error.toString().contains('database is locked')) return null;
+      if (!acquired && error.toString().contains('database is locked')) return null;
       rethrow;
     } finally {
       await lock?.close();
@@ -131,27 +137,6 @@ class LocalTodoRepository extends ChangeNotifier {
       limit: limit,
     );
     return rows.map(_syncQueueItemFromMap).toList(growable: false);
-  }
-
-  Future<SyncQueueSummary> getPendingSyncSummary() async {
-    final pending = await _database.rawQuery(
-      'SELECT COUNT(*) AS count FROM sync_queue',
-    );
-    final failed = await _database.rawQuery(
-      'SELECT COUNT(*) AS count FROM sync_queue WHERE lastError IS NOT NULL',
-    );
-    final retry = await _database.rawQuery(
-      '''
-      SELECT MIN(nextAttemptAt) AS nextRetryAt
-      FROM sync_queue
-      WHERE lastError IS NOT NULL
-      ''',
-    );
-    return SyncQueueSummary(
-      pendingCount: Sqflite.firstIntValue(pending) ?? 0,
-      failedCount: Sqflite.firstIntValue(failed) ?? 0,
-      nextRetryAt: _dateFromMillis(Sqflite.firstIntValue(retry)),
-    );
   }
 
   Future<int> retryFailedSyncQueueNow() async {
@@ -2064,7 +2049,17 @@ class LocalTodoRepository extends ChangeNotifier {
     final pendingChildIds = <String>{};
     for (final row in pendingRows) {
       final payload = decodeSyncPayload(row['payloadJson'] as String?);
-      if (payload == null) continue;
+      if (payload == null) {
+        // The queue cannot describe which edits are pending. Keep local fields
+        // and children until that damaged operation can be repaired.
+        pendingFields.addAll(taskSyncFieldNames);
+        if (existingRow != null) {
+          final children = await db.query('subtasks', columns: ['syncId'],
+              where: 'taskId = ?', whereArgs: [existingRow['id']]);
+          pendingChildIds.addAll(children.map((child) => child['syncId']).whereType<String>());
+        }
+        continue;
+      }
       pendingFields.addAll(changedTaskFieldsFromPayload(payload));
       pendingChildIds.addAll(_subtaskPayloadsFromPayload(payload)
           .map((child) => child['id'])

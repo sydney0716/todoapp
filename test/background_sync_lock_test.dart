@@ -64,4 +64,29 @@ void main() {
     await first.close();
     await directory.delete(recursive: true);
   });
+
+  test('a locked database inside sync is reported and releases the sync lock',
+      () async {
+    final directory = await Directory.systemTemp.createTemp('todo_sync_error_');
+    final repository = LocalTodoRepository(databasePath: '${directory.path}/tasks.db');
+    await repository.init(refreshNativeWidget: false);
+    addTearDown(() async {
+      await repository.close();
+      await directory.delete(recursive: true);
+    });
+    final error = _LockedDatabaseException();
+    await expectLater(
+      repository.withSyncLock(() async => throw error),
+      throwsA(same(error)),
+    );
+    expect(await repository.withSyncLock(() async => 'recovered'), 'recovered');
+  });
+}
+
+class _LockedDatabaseException implements DatabaseException {
+  @override
+  String toString() => 'database is locked';
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

@@ -12,6 +12,7 @@ import 'local_todo_repository.dart';
 import 'native_widget_bridge.dart';
 import 'settings_controller.dart';
 import 'settings_store.dart';
+import 'task_notification_service.dart';
 import 'todo_sync_service.dart';
 
 const backgroundRefreshInterval = Duration(hours: 2);
@@ -20,11 +21,21 @@ const widgetActionTaskName = 'com.example.personaltodo.widget_action';
 
 @pragma('vm:entry-point')
 void widgetRefreshDispatcher() {
+  Future<bool>? active;
   Workmanager().executeTask((task, _) async {
-    if (task == widgetActionTaskName) return MobileBackgroundSync.run();
-    if (task == widgetRefreshTaskName) await MobileBackgroundSync.run();
+    if (task == widgetActionTaskName || task == widgetRefreshTaskName) {
+      final running = MobileBackgroundSync.run();
+      active = running;
+      final result = await running;
+      return task == widgetActionTaskName ? result : true;
+    }
     // Failed changes remain in SQLite; avoid frequent background wake-ups.
     return true;
+  }, onTaskStopped: (_, _) async {
+    // WorkManager can stop a worker while its Dart callback is still running.
+    // Let finally blocks release SQLite locks before destroying that engine;
+    // sqflite's Android plugin keeps native connections after engine detach.
+    await active;
   });
 }
 
@@ -103,6 +114,12 @@ class MobileBackgroundSync {
       if (repositoryInitialized) {
         try {
           await repository!.reload(refreshNativeWidget: false);
+          await TaskNotificationService.syncTasks(
+            activeTasks: repository.tasks,
+            trashTasks: repository.trashTasks,
+            language: settings.language,
+            timeFormat: settings.timeFormat,
+          );
           await NativeWidgetBridge.refreshHomeWidget(
             tasks: repository.tasks,
             languageCode: settings.language.languageCode,
@@ -113,9 +130,7 @@ class MobileBackgroundSync {
           await repository!.close();
         }
       }
-      if (settingsInitialized) {
-        await settings.close();
-      }
+      if (settingsInitialized) await settings.close();
     }
   }
 

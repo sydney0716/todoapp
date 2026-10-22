@@ -182,6 +182,7 @@ class TodoSyncCoordinator extends ChangeNotifier {
   }
 
   Future<TodoSyncResult> _run() async {
+    var lockBusy = false;
     try {
       late TodoSyncResult result;
       do {
@@ -195,6 +196,7 @@ class TodoSyncCoordinator extends ChangeNotifier {
       } while (_again && !_disposed && canSync);
       return result;
     } on Object catch (error) {
+      lockBusy = error is TodoSyncBusyException;
       lastError = error.toString();
       rethrow;
     } finally {
@@ -202,7 +204,11 @@ class TodoSyncCoordinator extends ChangeNotifier {
       if (!_disposed) {
         notifyListeners();
         _queueSignature = '';
-        await _scheduleQueue();
+        if (lockBusy) {
+          _schedule(pollInterval);
+        } else {
+          await _scheduleQueue();
+        }
       }
     }
   }

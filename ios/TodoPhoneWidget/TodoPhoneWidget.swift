@@ -43,7 +43,7 @@ struct TodoPhoneWidgetView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
-      Link(destination: URL(string: "personaltodo://open")!) {
+      Link(destination: URL(string: "personaltodo://open?homeWidget=1")!) {
         Text(korean ? "할 일" : "Todo")
           .font(.system(size: 17, weight: .semibold))
           .foregroundColor(dark ? .white : .primary)
@@ -68,14 +68,19 @@ struct TodoPhoneWidgetView: View {
                   ? ((task.isPartiallyCompleted ?? false) && !(task.isCompletedByCurrentUser ?? false)) : nil
               ))
             } else {
-              Link(destination: URL(string: "personaltodo://open")!) {
+              Link(destination: openTaskUrl(for: task)) {
                 Image(systemName: "square").foregroundColor(accent)
               }
             }
-            Text(task.title)
-              .font(.system(size: 14))
-              .lineLimit(1)
-              .foregroundColor(dark ? .white : .primary)
+            Link(destination: openTaskUrl(for: task)) {
+              Text(task.title)
+                .font(.system(size: 14))
+                .lineLimit(1)
+                .foregroundColor(dark ? .white : .primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
           }
         }
         if entry.snapshot.openTaskCount > limit {
@@ -89,7 +94,14 @@ struct TodoPhoneWidgetView: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .modifier(PhoneWidgetBackground(color: background))
     .environment(\.colorScheme, dark ? .dark : .light)
-    .widgetURL(URL(string: "personaltodo://open"))
+    .widgetURL(URL(string: "personaltodo://open?homeWidget=1"))
+  }
+
+  private func openTaskUrl(for task: TodoPhoneWidgetTask) -> URL {
+    guard let id = task.databaseId, id > 0 else {
+      return URL(string: "personaltodo://open?homeWidget=1")!
+    }
+    return URL(string: "personaltodo://open-task?taskId=\(id)&homeWidget=1")!
   }
 }
 

@@ -26,11 +26,19 @@ public class TodoHomeWidgetProvider extends AppWidgetProvider {
     private static final String EXTRA_COMPLETED = "completed";
     private static final String EXTRA_USER_ID = "user_id";
     private static final String EXTRA_CANCEL_REMINDER = "cancel_reminder";
+    private static final String EXTRA_NAVIGATE = "navigate";
 
     @Override
     public void onReceive(Context context, Intent intent) {
         String action = intent.getAction();
         if (ACTION_SAVE_COMPLETION.equals(action)) {
+            if (intent.getBooleanExtra(EXTRA_NAVIGATE, false)) {
+                long taskId = intent.getLongExtra(EXTRA_TASK_ID, 0);
+                context.startActivity(taskId > 0
+                        ? MainActivity.openTaskIntent(context, taskId)
+                        : MainActivity.openAppIntent(context));
+                return;
+            }
             saveCompletion(context, intent);
             return;
         }
@@ -83,6 +91,8 @@ public class TodoHomeWidgetProvider extends AppWidgetProvider {
         );
         views.setOnClickPendingIntent(R.id.widgetHeaderRow, openAppIntent);
         views.setOnClickPendingIntent(R.id.widgetHeaderTitle, openAppIntent);
+        views.setOnClickPendingIntent(R.id.widgetRoot, openAppIntent);
+        views.setOnClickPendingIntent(R.id.widgetEmptyText, openAppIntent);
 
         PendingIntent addTaskIntent = PendingIntent.getActivity(
                 context,
@@ -123,6 +133,12 @@ public class TodoHomeWidgetProvider extends AppWidgetProvider {
         );
         views.setTextColor(R.id.widgetAddTaskButton, palette.buttonTextColor);
         views.setTextColor(R.id.widgetEmptyText, palette.textColor);
+    }
+
+    static Intent navigationIntent(long taskId) {
+        return new Intent()
+                .putExtra(EXTRA_NAVIGATE, true)
+                .putExtra(EXTRA_TASK_ID, taskId);
     }
 
     static Intent completionIntent(long taskId, long subTaskId, boolean completed,

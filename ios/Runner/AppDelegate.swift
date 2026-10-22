@@ -6,7 +6,7 @@ import workmanager_apple
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
-  private let taskNotificationsChannel = "com.example.personaltodo/task_notifications"
+  private static let taskNotificationsChannel = "com.example.personaltodo/task_notifications"
   private var backgroundSyncTasks: Set<Int> = []
 
   override func application(
@@ -20,10 +20,16 @@ import workmanager_apple
     WorkmanagerPlugin.registerLaunchHandlers()
     WorkmanagerPlugin.setPluginRegistrantCallback { registry in
       GeneratedPluginRegistrant.register(with: registry)
+      if let registrar = registry.registrar(forPlugin: "TaskNotifications") {
+        AppDelegate.registerTaskNotificationChannel(binaryMessenger: registrar.messenger(), background: true)
+      }
     }
     if #available(iOS 17, *) {
       HomeWidgetBackgroundWorker.setPluginRegistrantCallback { registry in
         GeneratedPluginRegistrant.register(with: registry)
+        if let registrar = registry.registrar(forPlugin: "TaskNotifications") {
+          AppDelegate.registerTaskNotificationChannel(binaryMessenger: registrar.messenger(), background: true)
+        }
       }
     }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
@@ -31,7 +37,7 @@ import workmanager_apple
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
-    registerTaskNotificationChannel(binaryMessenger: engineBridge.applicationRegistrar.messenger())
+    Self.registerTaskNotificationChannel(binaryMessenger: engineBridge.applicationRegistrar.messenger())
     registerBackgroundSyncChannel(binaryMessenger: engineBridge.applicationRegistrar.messenger())
   }
 
@@ -69,7 +75,7 @@ import workmanager_apple
     UIApplication.shared.endBackgroundTask(identifier)
   }
 
-  private func registerTaskNotificationChannel(binaryMessenger: FlutterBinaryMessenger) {
+  private static func registerTaskNotificationChannel(binaryMessenger: FlutterBinaryMessenger, background: Bool = false) {
     FlutterMethodChannel(
       name: taskNotificationsChannel,
       binaryMessenger: binaryMessenger
@@ -80,7 +86,7 @@ import workmanager_apple
           result(FlutterError(code: "invalid_arguments", message: "Missing notification arguments.", details: nil))
           return
         }
-        self.scheduleTaskReminder(arguments, result: result)
+        self.scheduleTaskReminder(arguments, background: background, result: result)
       case "cancelTaskReminder":
         guard let arguments = call.arguments as? [String: Any] else {
           result(FlutterError(code: "invalid_arguments", message: "Missing notification arguments.", details: nil))
@@ -102,7 +108,7 @@ import workmanager_apple
     }
   }
 
-  private func scheduleTaskReminder(_ arguments: [String: Any], result: @escaping FlutterResult) {
+  private static func scheduleTaskReminder(_ arguments: [String: Any], background: Bool, result: @escaping FlutterResult) {
     let notificationId = intArgument(arguments, "notificationId")
     let triggerAtMillis = doubleArgument(arguments, "triggerAtMillis")
     guard notificationId > 0 else {
@@ -132,7 +138,7 @@ import workmanager_apple
       trigger: trigger
     )
     center.removePendingNotificationRequests(withIdentifiers: [notificationIdentifier(notificationId)])
-    center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+    let schedule: (Bool, Error?) -> Void = { granted, error in
       guard granted && error == nil else {
         DispatchQueue.main.async {
           result(FlutterError(code: "notifications_denied", message: error?.localizedDescription ?? "Enable notifications for Personal Todo in system settings.", details: nil))
@@ -147,9 +153,16 @@ import workmanager_apple
         }
       }
     }
+    if background {
+      center.getNotificationSettings { settings in
+        schedule([.authorized, .provisional, .ephemeral].contains(settings.authorizationStatus), nil)
+      }
+    } else {
+      center.requestAuthorization(options: [.alert, .sound, .badge], completionHandler: schedule)
+    }
   }
 
-  private func cancelTaskReminder(notificationId: Int) {
+  private static func cancelTaskReminder(notificationId: Int) {
     guard notificationId > 0 else {
       return
     }
@@ -158,11 +171,11 @@ import workmanager_apple
     )
   }
 
-  private func notificationIdentifier(_ notificationId: Int) -> String {
+  private static func notificationIdentifier(_ notificationId: Int) -> String {
     "task-\(notificationId)"
   }
 
-  private func intArgument(_ arguments: [String: Any], _ key: String) -> Int {
+  private static func intArgument(_ arguments: [String: Any], _ key: String) -> Int {
     if let value = arguments[key] as? Int {
       return value
     }
@@ -175,7 +188,7 @@ import workmanager_apple
     return 0
   }
 
-  private func doubleArgument(_ arguments: [String: Any], _ key: String) -> Double {
+  private static func doubleArgument(_ arguments: [String: Any], _ key: String) -> Double {
     if let value = arguments[key] as? Double {
       return value
     }
@@ -188,7 +201,7 @@ import workmanager_apple
     return 0
   }
 
-  private func stringArgument(_ arguments: [String: Any], _ key: String) -> String {
+  private static func stringArgument(_ arguments: [String: Any], _ key: String) -> String {
     arguments[key] as? String ?? ""
   }
 }

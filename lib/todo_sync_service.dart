@@ -46,13 +46,10 @@ class TodoSyncService {
       await repository.reload(refreshNativeWidget: false);
       return _syncNow(reconcileSnapshot: reconcileSnapshot);
     });
-    return result ??
-        TodoSyncResult(
-          pushedCount: 0,
-          pulledCount: 0,
-          failedCount: 0,
-          cursor: settings.lastSyncCursor,
-        );
+    if (result == null) {
+      throw const TodoSyncBusyException();
+    }
+    return result;
   }
 
   Future<TodoSyncResult> _syncNow({required bool reconcileSnapshot}) async {
@@ -198,9 +195,7 @@ class TodoSyncService {
               'Server returned a non-advancing sync cursor.');
         }
         cursor = pull.cursor;
-        await settings.recordSyncSuccess(
-            cursor: cursor,
-            taskCount: repository.tasks.length + repository.trashTasks.length);
+        await settings.recordSyncSuccess(cursor: cursor);
         if (!pull.hasMore) break;
       }
       await repository.moveExpiredCompletedTasksToTrash(
@@ -226,10 +221,7 @@ class TodoSyncService {
         snapshotReconciled = true;
       }
 
-      await settings.recordSyncSuccess(
-        cursor: cursor,
-        taskCount: repository.tasks.length + repository.trashTasks.length,
-      );
+      await settings.recordSyncSuccess(cursor: cursor);
 
       return TodoSyncResult(
         pushedCount: pushedCount,
@@ -367,6 +359,11 @@ class TodoSyncException implements Exception {
 
   @override
   String toString() => message;
+}
+
+class TodoSyncBusyException extends TodoSyncException {
+  const TodoSyncBusyException()
+      : super('Sync is already running. Try again shortly.');
 }
 
 class _AuthorizedResult<T> {

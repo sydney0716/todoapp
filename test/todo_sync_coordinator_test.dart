@@ -11,6 +11,32 @@ const result =
     TodoSyncResult(pushedCount: 0, pulledCount: 0, failedCount: 0, cursor: '1');
 
 void main() {
+  testWidgets('a busy lock waits for a normal retry instead of spinning',
+      (tester) async {
+    final repository = _QueueRepository()..queue = [_item(DateTime(2020))];
+    var calls = 0;
+    final sync = TodoSyncCoordinator(
+      repository: repository,
+      settings: SettingsController()..refreshToken = 'refresh',
+      runner: (_) async {
+        calls++;
+        if (calls == 1) throw const TodoSyncBusyException();
+        repository.queue = [];
+        return result;
+      },
+    )..start();
+    await tester.pump(const Duration(milliseconds: 600));
+    for (var second = 0; second < 10; second++) {
+      await tester.pump(const Duration(seconds: 1));
+    }
+    expect(calls, 1);
+    expect(repository.queue, hasLength(1));
+    await tester.pump(const Duration(seconds: 20));
+    expect(calls, 2);
+    expect(repository.queue, isEmpty);
+    sync.dispose();
+  });
+
   testWidgets('Mac background waits two hours but sends new edits promptly',
       (tester) async {
     final repository = _QueueRepository();

@@ -150,9 +150,7 @@ void main() {
     await settings.init();
     await settings.setApiBaseUrl('todo.example.com/');
     await settings.recordServerConnectionSuccess(
-      username: 'user1',
       cursor: '12',
-      taskCount: 3,
       session: const AuthSession(
         accessToken: 'access-token',
         refreshToken: 'refresh-token',
@@ -173,11 +171,11 @@ void main() {
     });
 
     expect(settings.apiBaseUrl, 'https://todo.example.com');
-    expect(settings.serverConnectionStatus, ServerConnectionStatus.connected);
-    expect(settings.serverConnectionUsername, 'user1');
+
+
     expect(settings.lastSyncCursor, '12');
-    expect(settings.lastSyncAt, isNotNull);
-    expect(settings.lastBootstrapTaskCount, 3);
+
+
     expect(settings.accessToken, 'access-token');
     expect(settings.refreshToken, 'refresh-token');
     expect(settings.authDeviceId, '11111111-1111-4111-8111-111111111111');
@@ -195,9 +193,7 @@ void main() {
     await settings.init();
     expect(settings.initialLoginCompleted, isFalse);
     await settings.recordServerConnectionSuccess(
-      username: 'user2',
       cursor: '0',
-      taskCount: 0,
       session: const AuthSession(
         accessToken: 'access-token',
         refreshToken: 'refresh-token',
@@ -234,9 +230,7 @@ void main() {
       await settings.init();
       await settings.setApiBaseUrl('https://old.example.com');
       await settings.recordServerConnectionSuccess(
-        username: 'user2',
         cursor: '42',
-        taskCount: 7,
         session: const AuthSession(
           accessToken: 'access',
           refreshToken: 'refresh',
@@ -264,9 +258,9 @@ void main() {
       expect(settings.refreshToken, 'refresh');
       expect(settings.authDeviceId, 'device');
       expect(settings.lastSyncCursor, '42');
-      expect(settings.lastBootstrapTaskCount, 7);
+
       expect(settings.initialLoginCompleted, isTrue);
-      expect(settings.serverConnectionStatus, ServerConnectionStatus.connected);
+
 
       // An unrelated/custom server must never be redirected by this migration.
       await settings.migrateServerAddress(

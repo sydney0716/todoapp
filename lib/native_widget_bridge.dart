@@ -9,6 +9,8 @@ import 'models.dart';
 
 class NativeWidgetBridge {
   static const phoneAppGroupId = 'group.com.example.personaltodo.shared';
+  static const openAppAction = 'open_app';
+  static const openTaskAction = 'open_task';
   static const openNewTaskAction = 'open_new_task';
   static const completeTaskAction = 'complete_task';
   static const toggleTaskCompletionAction = 'toggle_task_completion';
@@ -25,11 +27,18 @@ class NativeWidgetBridge {
   static String _macWidgetThemeMode = 'LIGHT';
   static String _macWidgetCurrentUserId = defaultCurrentUserId;
   static Future<void> Function(String, Map<String, Object?>)? _actionHandler;
+  static StreamSubscription<Uri?>? _phoneWidgetClicks;
 
   static Future<String?> consumeInitialAction() async {
-    if (!_isAndroid) return null;
+    if (!_isAndroid && !_isIOS) return null;
 
     try {
+      if (_isIOS) {
+        await _handlePhoneWidgetUrl(
+          await HomeWidget.initiallyLaunchedFromHomeWidget(),
+        );
+        return null;
+      }
       final action = await _channel.invokeMethod<Object?>(
         'consumeInitialAction',
       );
@@ -67,6 +76,14 @@ class NativeWidgetBridge {
       return;
     }
 
+    if (_isIOS) {
+      _phoneWidgetClicks = HomeWidget.widgetClicked.listen(
+        (url) => unawaited(_handlePhoneWidgetUrl(url)),
+        onError: (Object error) {},
+      );
+      return;
+    }
+
     if (!_isAndroid) return;
 
     _channel.setMethodCallHandler((call) async {
@@ -92,6 +109,22 @@ class NativeWidgetBridge {
   static void clearActionHandler() {
     _actionHandler = null;
     _channel.setMethodCallHandler(null);
+    final clicks = _phoneWidgetClicks;
+    _phoneWidgetClicks = null;
+    if (clicks != null) unawaited(clicks.cancel());
+  }
+
+  static Future<void> _handlePhoneWidgetUrl(Uri? url) async {
+    final handler = _actionHandler;
+    if (handler == null || url?.scheme != 'personaltodo') return;
+    if (url!.host == 'open') {
+      await handler(openAppAction, const {});
+    } else if (url.host == 'open-task') {
+      final taskId = int.tryParse(url.queryParameters['taskId'] ?? '');
+      if (taskId != null && taskId > 0) {
+        await handler(openTaskAction, {'taskId': taskId});
+      }
+    }
   }
 
   static Future<void> refreshHomeWidget({
@@ -125,7 +158,9 @@ class NativeWidgetBridge {
           await HomeWidget.setAppGroupId(phoneAppGroupId);
           if (snapshotTasks != null) {
             await HomeWidget.saveWidgetData<String>(
-                'todo_widget_snapshot', _macWidgetSnapshotJson(snapshotTasks));
+              'todo_widget_snapshot',
+              _macWidgetSnapshotJson(snapshotTasks),
+            );
           }
           await HomeWidget.updateWidget(iOSName: 'TodoPhoneTasksWidget');
           return;
@@ -166,8 +201,9 @@ class NativeWidgetBridge {
             'title': task.title,
             'requiresBothSharedCompletion': task.requiresBothSharedCompletion,
             'isPartiallyCompleted': task.isPartiallyCompleted,
-            'isCompletedByCurrentUser':
-                task.isCompletedByUser(_macWidgetCurrentUserId),
+            'isCompletedByCurrentUser': task.isCompletedByUser(
+              _macWidgetCurrentUserId,
+            ),
             'dueAtMillis': task.dueDateTime?.millisecondsSinceEpoch,
             'subTasks': [
               for (final subTask in task.subTasks

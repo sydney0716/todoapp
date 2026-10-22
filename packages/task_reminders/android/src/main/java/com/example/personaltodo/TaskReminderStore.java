@@ -38,10 +38,10 @@ final class TaskReminderStore {
         if (!preferences(context).edit().putString(String.valueOf(id), reminder.toString()).commit()) {
             throw new IllegalStateException("Could not save reminder.");
         }
-        Intent intent = new Intent(context, TaskAlarmReceiver.class)
-                .putExtra(TaskAlarmReceiver.EXTRA_NOTIFICATION_ID, id)
-                .putExtra(TaskAlarmReceiver.EXTRA_TITLE, title)
-                .putExtra(TaskAlarmReceiver.EXTRA_BODY, body);
+        Intent intent = alarmIntent(context)
+                .putExtra("notification_id", id)
+                .putExtra("title", title)
+                .putExtra("body", body);
         PendingIntent pending = PendingIntent.getBroadcast(context, id, intent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         AlarmManager manager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
@@ -58,7 +58,7 @@ final class TaskReminderStore {
     static void cancel(Context context, int id) {
         preferences(context).edit().remove(String.valueOf(id)).commit();
         PendingIntent pending = PendingIntent.getBroadcast(context, id,
-                new Intent(context, TaskAlarmReceiver.class),
+                alarmIntent(context),
                 PendingIntent.FLAG_NO_CREATE | PendingIntent.FLAG_IMMUTABLE);
         AlarmManager manager = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
         if (pending != null) {
@@ -67,6 +67,11 @@ final class TaskReminderStore {
         }
         NotificationManager notifications = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
         if (notifications != null) notifications.cancel(id);
+    }
+
+    private static Intent alarmIntent(Context context) {
+        // Retain the app's receiver component and alarm IDs across upgrades.
+        return new Intent().setClassName(context, context.getPackageName() + ".TaskAlarmReceiver");
     }
 
     static void restore(Context context) {

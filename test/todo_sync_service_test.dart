@@ -25,6 +25,84 @@ void main() {
     databaseFactory = databaseFactoryFfi;
   });
 
+  test('a malformed queue row keeps local edits and allows other uploads and pulls',
+      () async {
+    final directory = await Directory.systemTemp.createTemp('todo_bad_queue_');
+    final dbPath = '${directory.path}/tasks.db';
+    final repository = LocalTodoRepository(databasePath: dbPath);
+    final settings = SettingsController(
+      store: SettingsStore(databasePath: '${directory.path}/settings.db'),
+    );
+    await repository.init(refreshNativeWidget: false);
+    await settings.init();
+    addTearDown(() async {
+      await repository.close();
+      await settings.close();
+      await directory.delete(recursive: true);
+    });
+    await settings.recordServerConnectionSuccess(
+      cursor: '0',
+      session: AuthSession(accessToken: 'access', refreshToken: 'refresh',
+          tokenType: 'bearer', userId: defaultCurrentUserId, deviceId: repository.deviceId),
+    );
+    await repository.upsertTask(TodoTask(title: 'Keep my local edit'));
+    await repository.upsertTask(TodoTask(title: 'Valid upload'));
+    final queue = await repository.getPendingSyncQueue();
+    final damaged = Map<String, Object?>.from(jsonDecode(queue.first.payloadJson!));
+    final valid = Map<String, Object?>.from(jsonDecode(queue.last.payloadJson!));
+    final database = await openDatabase(dbPath, singleInstance: false);
+    await database.update('sync_queue', {'payloadJson': '{broken'},
+        where: 'id = ?', whereArgs: [queue.first.id]);
+    await database.close();
+    final remote = Map<String, Object?>.of(damaged)
+      ..['title'] = 'Remote title'
+      ..['version'] = (damaged['version'] as int) + 1;
+    final downloaded = Map<String, Object?>.of(valid)
+      ..['id'] = '99999999-9999-4999-8999-999999999999'
+      ..['title'] = 'New download';
+    final transport = FakeTodoApiTransport([
+      jsonResponse({'cursor': '1', 'accepted': [valid], 'rejected': []}),
+      jsonResponse({'cursor': '3', 'changes': [
+        {'operation': 'upsert', 'record': remote},
+        {'operation': 'upsert', 'record': downloaded},
+      ]}),
+    ]);
+    final result = await TodoSyncService(repository: repository, settings: settings,
+        clientFactory: (url) => TodoApiClient(baseUrl: url, transport: transport)).syncNow();
+    expect(result.failedCount, 1);
+    expect(result.pushedCount, 1);
+    expect(result.pulledCount, 2);
+    expect(repository.tasks.map((task) => task.title),
+        containsAll(['Keep my local edit', 'Valid upload', 'New download']));
+    final remaining = await repository.getPendingSyncQueue();
+    expect(remaining, hasLength(1));
+    expect(remaining.single.lastError, contains('Invalid task sync payload'));
+    expect(settings.lastSyncCursor, '3');
+    expect(transport.requests, hasLength(2));
+  });
+
+  test('a busy sync lock cannot report successful synchronization', () async {
+    final directory = await Directory.systemTemp.createTemp('todo_sync_busy_');
+    final repository = LocalTodoRepository(databasePath: '${directory.path}/tasks.db');
+    final settings = SettingsController(
+      store: SettingsStore(databasePath: '${directory.path}/settings.db'),
+    );
+    await repository.init(refreshNativeWidget: false);
+    await settings.init();
+    addTearDown(() async {
+      await repository.close();
+      await settings.close();
+      await directory.delete(recursive: true);
+    });
+    await repository.upsertTask(TodoTask(title: 'Keep this pending'));
+    final service = TodoSyncService(repository: repository, settings: settings);
+    await repository.withSyncLock(() async {
+      await expectLater(service.syncNow(), throwsA(isA<TodoSyncException>()));
+    });
+
+    expect(await repository.getPendingSyncQueue(), hasLength(1));
+  });
+
   test(
       'syncNow pushes queued tasks and advances past server-filtered own events',
       () async {
@@ -48,9 +126,7 @@ void main() {
     });
 
     await settings.recordServerConnectionSuccess(
-      username: 'user1',
       cursor: '0',
-      taskCount: 0,
       session: AuthSession(
         accessToken: 'access-token',
         refreshToken: 'refresh-token',
@@ -90,7 +166,7 @@ void main() {
     expect(result.failedCount, 0);
     expect(result.cursor, '1');
     expect(settings.lastSyncCursor, '1');
-    expect(settings.lastSyncAt, isNotNull);
+
     expect(await _syncQueueCount(repository), 0);
     expect(repository.tasks.single.title, 'Sync me');
     expect(repository.tasks.single.syncStatus, SyncStatus.synced);
@@ -126,9 +202,7 @@ void main() {
     });
 
     await settings.recordServerConnectionSuccess(
-      username: 'user1',
       cursor: '10',
-      taskCount: 0,
       session: AuthSession(
         accessToken: 'access-token',
         refreshToken: 'refresh-token',
@@ -219,9 +293,7 @@ void main() {
     });
 
     await firstSettings.recordServerConnectionSuccess(
-      username: 'user1',
       cursor: '0',
-      taskCount: 0,
       session: AuthSession(
         accessToken: 'first-access-token',
         refreshToken: 'first-refresh-token',
@@ -231,9 +303,7 @@ void main() {
       ),
     );
     await secondSettings.recordServerConnectionSuccess(
-      username: 'user1',
       cursor: '0',
-      taskCount: 0,
       session: AuthSession(
         accessToken: 'second-access-token',
         refreshToken: 'second-refresh-token',
@@ -306,9 +376,7 @@ void main() {
     });
 
     await settings.recordServerConnectionSuccess(
-      username: 'user1',
       cursor: '0',
-      taskCount: 0,
       session: AuthSession(
         accessToken: 'access-token',
         refreshToken: 'refresh-token',
@@ -378,9 +446,7 @@ void main() {
     });
 
     await settings.recordServerConnectionSuccess(
-      username: 'user1',
       cursor: '0',
-      taskCount: 0,
       session: AuthSession(
         accessToken: 'access-token',
         refreshToken: 'refresh-token',
@@ -456,9 +522,7 @@ void main() {
     });
 
     await settings.recordServerConnectionSuccess(
-      username: 'user1',
       cursor: '0',
-      taskCount: 1,
       session: AuthSession(
         accessToken: 'access-token',
         refreshToken: 'refresh-token',
@@ -560,9 +624,7 @@ void main() {
     });
 
     await settings.recordServerConnectionSuccess(
-      username: 'user1',
       cursor: '0',
-      taskCount: 1,
       session: AuthSession(
         accessToken: 'access-token',
         refreshToken: 'refresh-token',
@@ -645,9 +707,7 @@ void main() {
     });
 
     await settings.recordServerConnectionSuccess(
-      username: 'user1',
       cursor: '0',
-      taskCount: 1,
       session: AuthSession(
         accessToken: 'access-token',
         refreshToken: 'refresh-token',
@@ -779,9 +839,7 @@ void main() {
     });
 
     await settings.recordServerConnectionSuccess(
-      username: 'user1',
       cursor: '0',
-      taskCount: 1,
       session: AuthSession(
         accessToken: 'access-token',
         refreshToken: 'refresh-token',
@@ -916,9 +974,7 @@ void main() {
     });
 
     await settings.recordServerConnectionSuccess(
-      username: 'user1',
       cursor: '0',
-      taskCount: 0,
       session: AuthSession(
         accessToken: 'access-token',
         refreshToken: 'refresh-token',
@@ -998,9 +1054,7 @@ void main() {
     });
 
     await settings.recordServerConnectionSuccess(
-      username: 'user1',
       cursor: '0',
-      taskCount: 1,
       session: AuthSession(
         accessToken: 'access-token',
         refreshToken: 'refresh-token',
@@ -1073,7 +1127,7 @@ void main() {
 }
 
 Future<int> _syncQueueCount(LocalTodoRepository repository) async {
-  return (await repository.getPendingSyncSummary()).pendingCount;
+  return (await repository.getPendingSyncQueue()).length;
 }
 
 Map<String, Object?> _taskRecord(TodoTask task) {

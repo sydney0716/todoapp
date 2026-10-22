@@ -1,11 +1,8 @@
 package com.example.personaltodo;
 
-import android.Manifest;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.content.pm.PackageManager;
-import android.os.Build;
 
 import androidx.annotation.NonNull;
 
@@ -24,14 +21,12 @@ public class MainActivity extends FlutterActivity {
             "com.example.personaltodo/settings_migration";
     private static final String WIDGET_ACTIONS_CHANNEL =
             "com.example.personaltodo/widget_actions";
-    private static final String TASK_NOTIFICATIONS_CHANNEL =
-            "com.example.personaltodo/task_notifications";
-    private static final int NOTIFICATION_PERMISSION_REQUEST_CODE = 9402;
     private static final String ACTION_OPEN_NEW_TASK =
             "com.example.personaltodo.widget.OPEN_NEW_TASK";
     private static final String ACTION_WIDGET_ACTION =
             "com.example.personaltodo.widget.ACTION";
     private static final String FLUTTER_ACTION_OPEN_NEW_TASK = "open_new_task";
+    private static final String FLUTTER_ACTION_OPEN_TASK = "open_task";
     static final String FLUTTER_ACTION_COMPLETE_TASK = "complete_task";
     static final String FLUTTER_ACTION_TOGGLE_TASK = "toggle_task_completion";
     static final String FLUTTER_ACTION_COMPLETE_SUBTASK = "complete_subtask";
@@ -45,7 +40,6 @@ public class MainActivity extends FlutterActivity {
     private static final String KEY_THEME_MODE = "theme_mode";
     private static final String KEY_TIME_FORMAT = "time_format";
     private MethodChannel widgetActionsChannel;
-    private boolean requestedNotificationPermission;
     private final List<Map<String, Object>> pendingWidgetActions = new ArrayList<>();
 
     static Intent newTaskIntent(Context context) {
@@ -65,6 +59,13 @@ public class MainActivity extends FlutterActivity {
                                 | Intent.FLAG_ACTIVITY_CLEAR_TOP
                                 | Intent.FLAG_ACTIVITY_SINGLE_TOP
                 );
+    }
+
+    static Intent openTaskIntent(Context context, long taskId) {
+        return openAppIntent(context)
+                .setAction(ACTION_WIDGET_ACTION)
+                .putExtra(EXTRA_FLUTTER_ACTION, FLUTTER_ACTION_OPEN_TASK)
+                .putExtra(EXTRA_TASK_ID, taskId);
     }
 
     @Override
@@ -98,41 +99,6 @@ public class MainActivity extends FlutterActivity {
             }
         });
 
-        new MethodChannel(
-                flutterEngine.getDartExecutor().getBinaryMessenger(),
-                TASK_NOTIFICATIONS_CHANNEL
-        ).setMethodCallHandler((call, result) -> {
-            if ("scheduleTaskReminder".equals(call.method)) {
-                Map<?, ?> arguments = call.arguments();
-                if (arguments == null) {
-                    result.error("invalid_arguments", "Missing notification arguments.", null);
-                    return;
-                }
-                requestNotificationPermissionIfNeeded();
-                if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                    result.error("notifications_denied", "Enable notifications for Personal Todo in system settings.", null);
-                    return;
-                }
-                try {
-                    boolean exact = TaskReminderStore.schedule(this, intArgument(arguments, "notificationId"),
-                            longArgument(arguments, "triggerAtMillis"), stringArgument(arguments, "title"), stringArgument(arguments, "body"));
-                    if (exact) result.success(null);
-                    else result.error("inexact_reminder", "Reminders may be delayed. Enable Alarms & reminders for Personal Todo in system settings.", null);
-                } catch (Exception error) { result.error("notification_failed", error.getMessage(), null); }
-            } else if ("cancelTaskReminder".equals(call.method)) {
-                Map<?, ?> arguments = call.arguments();
-                if (arguments == null) {
-                    result.error("invalid_arguments", "Missing notification arguments.", null);
-                    return;
-                }
-                TaskReminderStore.cancel(this, intArgument(arguments, "notificationId"));
-                result.success(null);
-            } else if ("getScheduledTaskReminderIds".equals(call.method)) {
-                result.success(TaskReminderStore.ids(this));
-            } else {
-                result.notImplemented();
-            }
-        });
     }
 
     @Override
@@ -221,48 +187,6 @@ public class MainActivity extends FlutterActivity {
         List<Map<String, Object>> actions = new ArrayList<>(pendingWidgetActions);
         pendingWidgetActions.clear();
         return actions;
-    }
-
-    private void requestNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT < 33 || requestedNotificationPermission) return;
-        if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
-                == PackageManager.PERMISSION_GRANTED) {
-            return;
-        }
-        requestedNotificationPermission = true;
-        requestPermissions(
-                new String[]{Manifest.permission.POST_NOTIFICATIONS},
-                NOTIFICATION_PERMISSION_REQUEST_CODE
-        );
-    }
-
-    private int intArgument(Map<?, ?> arguments, String key) {
-        Object value = arguments.get(key);
-        if (value instanceof Number) return ((Number) value).intValue();
-        if (value instanceof String) {
-            try {
-                return Integer.parseInt((String) value);
-            } catch (NumberFormatException ignored) {
-            }
-        }
-        return 0;
-    }
-
-    private long longArgument(Map<?, ?> arguments, String key) {
-        Object value = arguments.get(key);
-        if (value instanceof Number) return ((Number) value).longValue();
-        if (value instanceof String) {
-            try {
-                return Long.parseLong((String) value);
-            } catch (NumberFormatException ignored) {
-            }
-        }
-        return 0L;
-    }
-
-    private String stringArgument(Map<?, ?> arguments, String key) {
-        Object value = arguments.get(key);
-        return value == null ? "" : value.toString();
     }
 
     private void copySettingsFromPreferences(

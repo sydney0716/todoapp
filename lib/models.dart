@@ -473,18 +473,6 @@ class SyncQueueItem {
   final DateTime nextAttemptAt;
 }
 
-class SyncQueueSummary {
-  const SyncQueueSummary({
-    required this.pendingCount,
-    required this.failedCount,
-    this.nextRetryAt,
-  });
-
-  final int pendingCount;
-  final int failedCount;
-  final DateTime? nextRetryAt;
-}
-
 class SyncedTaskChange {
   const SyncedTaskChange({
     required this.operation,

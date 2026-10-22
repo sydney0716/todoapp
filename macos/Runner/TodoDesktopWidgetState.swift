@@ -35,12 +35,22 @@ struct TodoDesktopWidgetTask: Codable, Identifiable {
 }
 
 struct TodoDesktopWidgetSnapshot: Codable {
+  static let refreshInterval: TimeInterval = 7200
+
   let updatedAtMillis: Double?
   let languageCode: String?
   let themeMode: String?
   var openTaskCount: Int
   let calendarDueDates: [Double]?
   var tasks: [TodoDesktopWidgetTask]
+
+  func needsBackgroundRefresh(at now: Date, lastAttempt: Date?) -> Bool {
+    if let lastAttempt, now.timeIntervalSince(lastAttempt) < Self.refreshInterval {
+      return false
+    }
+    guard let updatedAtMillis else { return true }
+    return now.timeIntervalSince1970 - updatedAtMillis / 1000 >= Self.refreshInterval
+  }
 
   static let empty = TodoDesktopWidgetSnapshot(
     updatedAtMillis: nil,

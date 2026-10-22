@@ -21,9 +21,14 @@ const taskSyncFieldNames = {
 
 Map<String, Object?>? decodeSyncPayload(String? payloadJson) {
   if (payloadJson == null) return null;
-  final decoded = jsonDecode(payloadJson);
-  if (decoded is Map<String, Object?>) return decoded;
-  if (decoded is Map) return Map<String, Object?>.from(decoded);
+  try {
+    final decoded = jsonDecode(payloadJson);
+    if (decoded is Map<String, Object?>) return decoded;
+    if (decoded is Map) return Map<String, Object?>.from(decoded);
+  } on FormatException {
+    // A damaged queue row must not stop valid uploads or remote downloads.
+    return null;
+  }
   return null;
 }
 

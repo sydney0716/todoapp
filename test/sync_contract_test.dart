@@ -16,7 +16,7 @@ void main() {
     expect(metadataFields, taskSyncFieldNames.toList(growable: false));
   });
 
-  test('queue payload parsing preserves legacy values and malformed errors',
+  test('queue payload parsing preserves legacy values and rejects malformed data',
       () {
     expect(decodeSyncPayload(null), isNull);
     for (final json in ['null', '[]', 'true', '42', '"text"']) {
@@ -24,8 +24,8 @@ void main() {
     }
     expect(decodeSyncPayload('{"title":"할 일","note":null,"subtasks":[]}'),
         {'title': '할 일', 'note': null, 'subtasks': []});
-    expect(() => decodeSyncPayload('{broken'), throwsFormatException);
-    expect(() => decodeSyncPayload(''), throwsFormatException);
+    expect(decodeSyncPayload('{broken'), isNull);
+    expect(decodeSyncPayload(''), isNull);
   });
 
   test('queued changed fields keep their order and tolerate mixed metadata',

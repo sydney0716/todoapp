@@ -7,6 +7,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:personaltodo/local_todo_repository.dart';
 import 'package:personaltodo/mobile_background_sync.dart';
 import 'package:personaltodo/models.dart';
+import 'package:personaltodo/settings_controller.dart';
+import 'package:personaltodo/task_notification_service.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
@@ -124,6 +126,37 @@ void main() {
           contains('"is_completed":true'));
       expect(await pending.exists(), isFalse);
       expect(widgetCalls, contains('updateWidget'));
+    });
+
+    test('background changes cancel old reminders and schedule new reminder times',
+        () async {
+      final calls = <MethodCall>[];
+      const notifications = MethodChannel('com.example.personaltodo/task_notifications');
+      final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(notifications, (call) async {
+        calls.add(call);
+        return call.method == 'getScheduledTaskReminderIds' ? <int>[] : null;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(notifications, null));
+      final now = DateTime.now();
+      await repository.upsertTask(TodoTask(title: 'Complete elsewhere',
+          dueDateTime: now.add(const Duration(hours: 1)), reminderOption: TaskReminderOption.atStart));
+      final completedId = repository.tasks.single.id;
+      await TaskNotificationService.syncTasks(activeTasks: repository.tasks,
+          trashTasks: [], language: AppLanguage.korean, timeFormat: AppTimeFormat.amPm);
+      await enqueue('complete-reminder', completedId);
+      calls.clear();
+      expect(await MobileBackgroundSync.run(), isTrue);
+      expect(calls.where((call) => call.method == 'cancelTaskReminder')
+          .any((call) => (call.arguments as Map)['notificationId'] == completedId), isTrue);
+      await repository.reload(refreshNativeWidget: false);
+      final nextTime = now.add(const Duration(hours: 3));
+      await repository.upsertTask(TodoTask(title: 'Rescheduled elsewhere',
+          dueDateTime: nextTime, reminderOption: TaskReminderOption.atStart));
+      calls.clear();
+      expect(await MobileBackgroundSync.run(), isTrue);
+      expect(calls.where((call) => call.method == 'scheduleTaskReminder')
+          .any((call) => (call.arguments as Map)['triggerAtMillis'] == nextTime.millisecondsSinceEpoch), isTrue);
     });
 
     test('subtask completion survives restart and replay', () async {

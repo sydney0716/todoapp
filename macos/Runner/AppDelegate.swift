@@ -5,6 +5,13 @@ import FlutterMacOS
 class AppDelegate: FlutterAppDelegate {
   override func application(_ application: NSApplication, open urls: [URL]) {
     TodoDesktopWidgetBridge.handleOpenUrls(urls)
+    if urls.contains(where: {
+      $0.scheme == "personaltodo" && ["open", "open-task", "create-task"].contains($0.host ?? "")
+    }) {
+      application.activate(ignoringOtherApps: true)
+      mainFlutterWindow?.deminiaturize(nil)
+      mainFlutterWindow?.makeKeyAndOrderFront(nil)
+    }
   }
 
   override func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

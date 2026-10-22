@@ -994,7 +994,7 @@ void main() {
   });
 
   test(
-      'sync queue summary reports failed retry timing and manual retry release',
+      'failed queue records retry timing and manual retry release',
       () async {
     final tempDir =
         await Directory.systemTemp.createTemp('personaltodo_retry_summary_');
@@ -1016,20 +1016,20 @@ void main() {
       nextAttemptAt: retryAt,
     );
 
-    final failedSummary = await repository.getPendingSyncSummary();
-    expect(failedSummary.pendingCount, 1);
-    expect(failedSummary.failedCount, 1);
-    expect(failedSummary.nextRetryAt, isNotNull);
+    final failedQueue = await repository.getPendingSyncQueue();
+    expect(failedQueue, hasLength(1));
+    expect(failedQueue.single.lastError, isNotNull);
+    expect(failedQueue.single.attemptCount, 1);
     expect(
-      failedSummary.nextRetryAt!.millisecondsSinceEpoch,
+      failedQueue.single.nextAttemptAt.millisecondsSinceEpoch,
       retryAt.millisecondsSinceEpoch,
     );
 
     expect(await repository.retryFailedSyncQueueNow(), 1);
-    final releasedSummary = await repository.getPendingSyncSummary();
-    expect(releasedSummary.failedCount, 1);
+    final releasedQueue = await repository.getPendingSyncQueue();
+    expect(releasedQueue.single.lastError, isNotNull);
     expect(
-      releasedSummary.nextRetryAt!.isAfter(
+      releasedQueue.single.nextAttemptAt.isAfter(
         DateTime.now().add(const Duration(seconds: 5)),
       ),
       isFalse,
@@ -1038,7 +1038,7 @@ void main() {
 }
 
 Future<int> _syncQueueCount(LocalTodoRepository repository) async {
-  return (await repository.getPendingSyncSummary()).pendingCount;
+  return (await repository.getPendingSyncQueue()).length;
 }
 
 TodoTask _remoteTask({

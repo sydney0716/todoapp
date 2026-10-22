@@ -41,6 +41,11 @@ public final class GeneratedPluginRegistrant {
       Log.e(TAG, "Error registering plugin sqflite_android, com.tekartik.sqflite.SqflitePlugin", e);
     }
     try {
+      flutterEngine.getPlugins().add(new com.example.personaltodo.TaskReminderPlugin());
+    } catch (Exception e) {
+      Log.e(TAG, "Error registering plugin task_reminders, com.example.personaltodo.TaskReminderPlugin", e);
+    }
+    try {
       flutterEngine.getPlugins().add(new dev.fluttercommunity.workmanager.WorkmanagerPlugin());
     } catch (Exception e) {
       Log.e(TAG, "Error registering plugin workmanager_android, dev.fluttercommunity.workmanager.WorkmanagerPlugin", e);

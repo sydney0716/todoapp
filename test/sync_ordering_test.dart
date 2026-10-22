@@ -31,9 +31,7 @@ void main() {
       await dir.delete(recursive: true);
     });
     await settings.recordServerConnectionSuccess(
-        username: 'user1',
         cursor: '1',
-        taskCount: 0,
         session: AuthSession(
             accessToken: 'access',
             refreshToken: 'refresh',
@@ -99,9 +97,7 @@ void main() {
       await dir.delete(recursive: true);
     });
     await settings.recordServerConnectionSuccess(
-        username: 'user1',
         cursor: '1',
-        taskCount: 0,
         session: AuthSession(
             accessToken: 'expired',
             refreshToken: 'expired-refresh',
@@ -144,9 +140,7 @@ void main() {
       await dir.delete(recursive: true);
     });
     await settings.recordServerConnectionSuccess(
-        username: 'user1',
         cursor: '0',
-        taskCount: 0,
         session: AuthSession(
             accessToken: 'access',
             refreshToken: 'refresh',

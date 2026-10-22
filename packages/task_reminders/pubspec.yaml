@@ -1,0 +1,15 @@
+name: task_reminders
+description: Native reminder channels for foreground and background Flutter engines.
+publish_to: none
+version: 0.0.1
+environment:
+  sdk: ">=3.12.0 <4.0.0"
+dependencies:
+  flutter:
+    sdk: flutter
+flutter:
+  plugin:
+    platforms:
+      android:
+        package: com.example.personaltodo
+        pluginClass: TaskReminderPlugin

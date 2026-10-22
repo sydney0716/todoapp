@@ -105,23 +105,6 @@ enum TaskSortDirection {
   }
 }
 
-enum ServerConnectionStatus {
-  notConnected('not_connected'),
-  connected('connected'),
-  failed('failed');
-
-  const ServerConnectionStatus(this.storedValue);
-
-  final String storedValue;
-
-  static ServerConnectionStatus fromStoredValue(String? value) {
-    return ServerConnectionStatus.values.firstWhere(
-      (status) => status.storedValue == value,
-      orElse: () => ServerConnectionStatus.notConnected,
-    );
-  }
-}
-
 class SettingsController extends ChangeNotifier {
   static const _showCompletedTasksKey = 'show_completed_tasks';
   static const _themeModeKey = 'theme_mode';
@@ -134,11 +117,7 @@ class SettingsController extends ChangeNotifier {
   static const _taskSortOptionKey = 'task_sort_option';
   static const _taskSortDirectionKey = 'task_sort_direction';
   static const _apiBaseUrlKey = 'api_base_url';
-  static const _serverConnectionStatusKey = 'server_connection_status';
-  static const _serverConnectionUsernameKey = 'server_connection_username';
   static const _lastSyncCursorKey = 'last_sync_cursor';
-  static const _lastSyncAtKey = 'last_sync_at';
-  static const _lastBootstrapTaskCountKey = 'last_bootstrap_task_count';
   static const _accessTokenKey = 'server_access_token';
   static const _refreshTokenKey = 'server_refresh_token';
   static const _authDeviceIdKey = 'server_auth_device_id';
@@ -159,12 +138,7 @@ class SettingsController extends ChangeNotifier {
   TaskSortOption taskSortOption = TaskSortOption.dueDate;
   TaskSortDirection taskSortDirection = TaskSortDirection.ascending;
   String apiBaseUrl = initialTodoApiBaseUrl;
-  ServerConnectionStatus serverConnectionStatus =
-      ServerConnectionStatus.notConnected;
-  String serverConnectionUsername = '';
   String lastSyncCursor = '';
-  DateTime? lastSyncAt;
-  int lastBootstrapTaskCount = 0;
   String accessToken = '';
   String refreshToken = '';
   String authDeviceId = '';
@@ -281,43 +255,18 @@ class SettingsController extends ChangeNotifier {
     apiBaseUrl = nextUrl;
     await _store.setString(_apiBaseUrlKey, apiBaseUrl);
     lastSyncCursor = '';
-    lastSyncAt = null;
     await _store.setString(_lastSyncCursorKey, '');
-    await _store.setInt(_lastSyncAtKey, 0);
     await requireReauthentication();
     notifyListeners();
   }
 
   Future<void> recordServerConnectionSuccess({
-    required String username,
     required String cursor,
-    required int taskCount,
-    AuthSession? session,
+    required AuthSession session,
   }) async {
-    final syncedAt = DateTime.now();
-    serverConnectionStatus = ServerConnectionStatus.connected;
-    serverConnectionUsername = username.trim();
-    lastSyncCursor = cursor;
-    lastSyncAt = syncedAt;
-    lastBootstrapTaskCount = taskCount;
-    if (session != null) {
-      _applyAuthSession(session);
-    }
-    await _store.setString(
-      _serverConnectionStatusKey,
-      serverConnectionStatus.storedValue,
-    );
-    await _store.setString(
-      _serverConnectionUsernameKey,
-      serverConnectionUsername,
-    );
-    await _store.setString(_lastSyncCursorKey, lastSyncCursor);
-    await _store.setInt(_lastSyncAtKey, syncedAt.millisecondsSinceEpoch);
-    await _store.setInt(_lastBootstrapTaskCountKey, lastBootstrapTaskCount);
-    if (session != null) {
-      await _writeAuthSession();
-    }
-    notifyListeners();
+    _applyAuthSession(session);
+    await _writeAuthSession();
+    await recordSyncSuccess(cursor: cursor);
   }
 
   Future<void> recordAuthSession(AuthSession session) async {
@@ -326,22 +275,9 @@ class SettingsController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> recordSyncSuccess({
-    required String cursor,
-    required int taskCount,
-  }) async {
-    final syncedAt = DateTime.now();
-    serverConnectionStatus = ServerConnectionStatus.connected;
+  Future<void> recordSyncSuccess({required String cursor}) async {
     lastSyncCursor = cursor;
-    lastSyncAt = syncedAt;
-    lastBootstrapTaskCount = taskCount;
-    await _store.setString(
-      _serverConnectionStatusKey,
-      serverConnectionStatus.storedValue,
-    );
-    await _store.setString(_lastSyncCursorKey, lastSyncCursor);
-    await _store.setInt(_lastSyncAtKey, syncedAt.millisecondsSinceEpoch);
-    await _store.setInt(_lastBootstrapTaskCountKey, lastBootstrapTaskCount);
+    await _store.setString(_lastSyncCursorKey, cursor);
     notifyListeners();
   }
 
@@ -352,15 +288,6 @@ class SettingsController extends ChangeNotifier {
     await _store.setString(_accessTokenKey, '');
     await _store.setString(_refreshTokenKey, '');
     await _store.setString(_authDeviceIdKey, '');
-    await recordServerConnectionFailure();
-  }
-
-  Future<void> recordServerConnectionFailure() async {
-    serverConnectionStatus = ServerConnectionStatus.failed;
-    await _store.setString(
-      _serverConnectionStatusKey,
-      serverConnectionStatus.storedValue,
-    );
     notifyListeners();
   }
 
@@ -411,18 +338,7 @@ class SettingsController extends ChangeNotifier {
     apiBaseUrl = normalizeTodoApiBaseUrl(
       await _store.getString(_apiBaseUrlKey) ?? initialTodoApiBaseUrl,
     );
-    serverConnectionStatus = ServerConnectionStatus.fromStoredValue(
-      await _store.getString(_serverConnectionStatusKey),
-    );
-    serverConnectionUsername =
-        await _store.getString(_serverConnectionUsernameKey) ?? '';
     lastSyncCursor = await _store.getString(_lastSyncCursorKey) ?? '';
-    final lastSyncMillis = await _store.getInt(_lastSyncAtKey);
-    lastSyncAt = lastSyncMillis == null || lastSyncMillis == 0
-        ? null
-        : _dateFromMillis(lastSyncMillis);
-    lastBootstrapTaskCount =
-        await _store.getInt(_lastBootstrapTaskCountKey) ?? 0;
     accessToken = await _store.getString(_accessTokenKey) ?? '';
     refreshToken = await _store.getString(_refreshTokenKey) ?? '';
     authDeviceId = await _store.getString(_authDeviceIdKey) ?? '';
@@ -451,10 +367,5 @@ class SettingsController extends ChangeNotifier {
       return storedValue!;
     }
     return defaultCurrentUserId;
-  }
-
-  DateTime? _dateFromMillis(int? millis) {
-    if (millis == null) return null;
-    return DateTime.fromMillisecondsSinceEpoch(millis);
   }
 }
