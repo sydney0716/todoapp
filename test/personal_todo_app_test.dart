@@ -276,6 +276,24 @@ void main() {
         expect(find.byType(TaskEditorScreen), findsNothing);
         expect(task.isCompleted, isFalse);
         expect(await repository.getPendingSyncQueue(), isEmpty);
+
+        await sendTask(42);
+        switch (defaultTargetPlatform) {
+          case TargetPlatform.macOS:
+            pending.add({'id': 'home', 'type': 'open_app'});
+            await _sendNativeWidgetMethod(tester, 'widgetActionsAvailable', null);
+          case TargetPlatform.iOS:
+            tester.binding.channelBuffers.push(
+              'home_widget/updates',
+              const StandardMethodCodec().encodeSuccessEnvelope('personaltodo://open'),
+              (_) {},
+            );
+          default:
+            await _sendNativeWidgetMethod(tester, 'widgetAction', {'type': 'open_app'});
+        }
+        await tester.pumpAndSettle();
+        expect(find.byType(TaskEditorScreen), findsNothing,
+            reason: 'Empty widget space must return to the main page');
         await tester.pumpWidget(const SizedBox.shrink());
       },
       variant: widgetPlatforms,

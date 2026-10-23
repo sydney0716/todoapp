@@ -200,7 +200,10 @@ def test_authenticated_bootstrap_returns_visible_tasks(
     assert [record["id"] for record in payload["tasks"]] == [str(TASK_ID)]
 
 
-def test_task_push_then_pull_round_trip(client: TestClient) -> None:
+@pytest.mark.parametrize("echo_to_origin", [False, True])
+def test_task_push_then_pull_round_trip(
+    client: TestClient, echo_to_origin: bool
+) -> None:
     auth = _login(client)
     record = _task_record()
 
@@ -209,6 +212,7 @@ def test_task_push_then_pull_round_trip(client: TestClient) -> None:
         headers={"Authorization": f"Bearer {auth['access_token']}"},
         json={
             "device_id": auth["device_id"],
+            "echo_to_origin": echo_to_origin,
             "changes": [{"operation": "upsert", "record": record}],
         },
     )
@@ -217,6 +221,7 @@ def test_task_push_then_pull_round_trip(client: TestClient) -> None:
     push_payload = push_response.json()
     assert push_payload["cursor"] == "1"
     assert push_payload["rejected"] == []
+    assert push_payload["echoed_to_origin"] is echo_to_origin
     assert [record["id"] for record in push_payload["accepted"]] == [str(TASK_ID)]
     assert _parse_json_datetime(push_payload["accepted"][0]["updated_at"]) != (
         _parse_json_datetime(record["updated_at"])
@@ -231,7 +236,10 @@ def test_task_push_then_pull_round_trip(client: TestClient) -> None:
     assert pull_response.status_code == 200
     pull_payload = pull_response.json()
     assert pull_payload["cursor"] == "1"
-    assert pull_payload["changes"] == []
+    assert len(pull_payload["changes"]) == int(echo_to_origin)
+    if echo_to_origin:
+        assert pull_payload["changes"][0]["record"]["id"] == str(TASK_ID)
+        assert pull_payload["changes"][0]["origin_device_id"] is None
 
     other_auth = _login(client, OTHER_DEVICE_ID)
     other_pull_response = client.get(
@@ -247,7 +255,9 @@ def test_task_push_then_pull_round_trip(client: TestClient) -> None:
     assert other_pull_payload["changes"][0]["operation"] == "upsert"
     assert other_pull_payload["changes"][0]["record"]["id"] == str(TASK_ID)
     assert other_pull_payload["changes"][0]["event_id"] == 1
-    assert other_pull_payload["changes"][0]["origin_device_id"] == auth["device_id"]
+    assert other_pull_payload["changes"][0]["origin_device_id"] == (
+        None if echo_to_origin else auth["device_id"]
+    )
     assert "title" in other_pull_payload["changes"][0]["changed_task_fields"]
     assert other_pull_payload["changes"][0]["changed_subtask_ids"] == []
 
@@ -281,6 +291,149 @@ def test_server_assigns_version_instead_of_trusting_client_version(
     assert payload["accepted"][0]["version"] == 6
     assert fake_db.tasks[TASK_ID].version == 6
     assert fake_db.tasks[TASK_ID].title == "Client title"
+
+
+def test_widget_actions_complete_without_replacing_task_or_child_text(
+    client: TestClient, fake_db: FakeSession
+) -> None:
+    auth = _login(client)
+    fake_db.add(_task(title="Latest server title"))
+    fake_db.add(_subtask(title="Latest child title", version=4))
+    action_ids = [
+        "40000000-0000-4000-8000-000000000001",
+        "40000000-0000-4000-8000-000000000002",
+    ]
+    response = client.post(
+        "/sync/widget-actions",
+        json={
+            "device_id": auth["device_id"],
+            "refresh_token": auth["refresh_token"],
+            "actions": [
+                {
+                    "id": action_ids[0],
+                    "task_sync_id": str(TASK_ID),
+                    "is_completed": True,
+                },
+                {
+                    "id": action_ids[1],
+                    "task_sync_id": str(TASK_ID),
+                    "subtask_sync_id": str(SUBTASK_ID),
+                    "is_completed": True,
+                },
+            ],
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["acknowledged_action_ids"] == action_ids
+    task = response.json()["tasks"][0]
+    assert task["title"] == "Latest server title"
+    assert task["is_completed"] is True
+    assert task["subtasks"][0]["title"] == "Latest child title"
+    assert task["subtasks"][0]["is_completed"] is True
+    pulled = client.get(
+        "/sync/tasks", headers={"Authorization": f"Bearer {auth['access_token']}"}
+    ).json()
+    assert len(pulled["changes"]) == 2
+    assert all(change["origin_device_id"] is None for change in pulled["changes"])
+    child_version = fake_db.subtasks[SUBTASK_ID].version
+    replayed = client.post(
+        "/sync/widget-actions",
+        content=response.request.content,
+        headers={"Content-Type": "application/json"},
+    )
+    assert replayed.json()["acknowledged_action_ids"] == action_ids
+    assert len(fake_db.events) == 2
+    assert fake_db.subtasks[SUBTASK_ID].version == child_version
+
+
+def test_widget_background_refresh_can_read_without_any_checkbox_changes(
+    client: TestClient, fake_db: FakeSession
+) -> None:
+    auth = _login(client)
+    fake_db.add(_task(title="Fetched in background"))
+    response = client.post(
+        "/sync/widget-actions",
+        json={
+            "device_id": auth["device_id"],
+            "refresh_token": auth["refresh_token"],
+            "actions": [],
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["tasks"][0]["title"] == "Fetched in background"
+    assert response.json()["acknowledged_action_ids"] == []
+    assert fake_db.events == []
+
+
+def test_widget_actions_preserve_partner_completion_and_click_order(
+    client: TestClient,
+) -> None:
+    auth = _login(client)
+    record = _task_record(
+        visibility="shared",
+        workspace_id=DEFAULT_SHARED_WORKSPACE_ID,
+        shared_completion_mode="both",
+    )
+    client.post(
+        "/sync/tasks",
+        headers={"Authorization": f"Bearer {auth['access_token']}"},
+        json={
+            "device_id": auth["device_id"],
+            "changes": [{"operation": "upsert", "record": record}],
+        },
+    )
+    partner = _login(client, OTHER_DEVICE_ID, username="user2")
+
+    def complete(session: dict[str, Any], values: list[bool]) -> dict[str, Any]:
+        response = client.post(
+            "/sync/widget-actions",
+            json={
+                "device_id": session["device_id"],
+                "refresh_token": session["refresh_token"],
+                "actions": [
+                    {
+                        "id": f"40000000-0000-4000-8000-{index:012d}",
+                        "task_sync_id": str(TASK_ID),
+                        "is_completed": value,
+                    }
+                    for index, value in enumerate(values, 1)
+                ],
+            },
+        )
+        assert response.status_code == 200
+        assert len(response.json()["acknowledged_action_ids"]) == len(values)
+        return response.json()["tasks"][0]
+
+    half = complete(auth, [True])
+    assert half["is_completed"] is False
+    assert half["completed_by_user_ids"] == [str(DEFAULT_CURRENT_USER_ID)]
+    assert complete(partner, [True])["is_completed"] is True
+    undone = complete(auth, [False, True, False])
+    assert undone["is_completed"] is False
+    assert undone["completed_by_user_ids"] == [str(PARTNER_USER_ID)]
+
+
+def test_widget_actions_require_valid_session_and_task_access(
+    client: TestClient, fake_db: FakeSession
+) -> None:
+    auth = _login(client)
+    partner = _login(client, OTHER_DEVICE_ID, username="user2")
+    fake_db.add(_task())
+    body = {
+        "device_id": auth["device_id"],
+        "refresh_token": auth["refresh_token"] + "invalid",
+        "actions": [
+            {
+                "id": "40000000-0000-4000-8000-000000000001",
+                "task_sync_id": str(TASK_ID),
+                "is_completed": True,
+            }
+        ],
+    }
+    assert client.post("/sync/widget-actions", json=body).status_code == 401
+    body.update(device_id=partner["device_id"], refresh_token=partner["refresh_token"])
+    assert client.post("/sync/widget-actions", json=body).status_code == 403
+    assert fake_db.tasks[TASK_ID].is_completed is False
 
 
 def test_shared_both_completion_round_trips_to_partner(client: TestClient) -> None:

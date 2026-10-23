@@ -111,26 +111,29 @@ class MobileBackgroundSync {
       debugPrint('Background widget save deferred: $error');
       return false;
     } finally {
-      if (repositoryInitialized) {
-        try {
-          await repository!.reload(refreshNativeWidget: false);
-          await TaskNotificationService.syncTasks(
-            activeTasks: repository.tasks,
-            trashTasks: repository.trashTasks,
-            language: settings.language,
-            timeFormat: settings.timeFormat,
-          );
-          await NativeWidgetBridge.refreshHomeWidget(
-            tasks: repository.tasks,
-            languageCode: settings.language.languageCode,
-            themeMode: settings.themeMode.storedValue,
-            currentUserId: settings.currentUserId,
-          );
-        } finally {
-          await repository!.close();
+      try {
+        if (repositoryInitialized) {
+          try {
+            await repository!.reload(refreshNativeWidget: false);
+            await TaskNotificationService.syncTasks(
+              activeTasks: repository.tasks,
+              trashTasks: repository.trashTasks,
+              language: settings.language,
+              timeFormat: settings.timeFormat,
+            );
+            await NativeWidgetBridge.refreshHomeWidget(
+              tasks: repository.tasks,
+              languageCode: settings.language.languageCode,
+              themeMode: settings.themeMode.storedValue,
+              currentUserId: settings.currentUserId,
+            );
+          } finally {
+            await repository!.close();
+          }
         }
+      } finally {
+        if (settingsInitialized) await settings.close();
       }
-      if (settingsInitialized) await settings.close();
     }
   }
 

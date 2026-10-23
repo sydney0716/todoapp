@@ -176,15 +176,28 @@ class FakeSession:
         return None
 
     def _snapshot(self) -> dict[str, Any]:
+        # Copy persisted values, not SQLAlchemy's relationship/weakref machinery.
+        # Loaded relationships are rebuilt by scalars(), as they are after rollback.
+        def rows(values: dict[Any, Any]) -> dict[Any, Any]:
+            return {
+                key: type(row)(
+                    **{
+                        column.key: copy.deepcopy(getattr(row, column.key))
+                        for column in row.__table__.columns
+                    }
+                )
+                for key, row in values.items()
+            }
+
         return {
-            "users": copy.deepcopy(self.users),
-            "workspaces": copy.deepcopy(self.workspaces),
-            "workspace_members": copy.deepcopy(self.workspace_members),
-            "devices": copy.deepcopy(self.devices),
-            "tasks": copy.deepcopy(self.tasks),
-            "purged_tasks": copy.deepcopy(self.purged_tasks),
-            "subtasks": copy.deepcopy(self.subtasks),
-            "events": copy.deepcopy(self.events),
+            "users": rows(self.users),
+            "workspaces": rows(self.workspaces),
+            "workspace_members": rows(self.workspace_members),
+            "devices": rows(self.devices),
+            "tasks": rows(self.tasks),
+            "purged_tasks": rows(self.purged_tasks),
+            "subtasks": rows(self.subtasks),
+            "events": list(rows(dict(enumerate(self.events))).values()),
             "next_event_id": self.next_event_id,
             "commit_count": self.commit_count,
         }

@@ -10,7 +10,7 @@ struct NativeWidgetStateTest {
     expect(source.needsBackgroundRefresh(at: now, lastAttempt: nil),
            "A missing snapshot must request a background refresh")
     expect(!source.needsBackgroundRefresh(at: now, lastAttempt: now.addingTimeInterval(-60)),
-           "Timeline reloads must not repeatedly wake the app while offline")
+           "Timeline reloads must not repeatedly retry background sync while offline")
     expect(source.needsBackgroundRefresh(at: now, lastAttempt: now.addingTimeInterval(-7200)),
            "Background refresh must become eligible after two hours")
     let fresh = TodoDesktopWidgetSnapshot(
@@ -18,7 +18,11 @@ struct NativeWidgetStateTest {
       languageCode: nil, themeMode: nil, openTaskCount: 0, calendarDueDates: nil, tasks: []
     )
     expect(!fresh.needsBackgroundRefresh(at: now, lastAttempt: nil),
-           "A recent app snapshot must not wake the app")
+           "A recent app snapshot must not request an unnecessary background refresh")
+    expect(fresh.needsBackgroundRefresh(at: now, lastAttempt: nil, hasPendingActions: true),
+           "Queued clicks must be eligible even when the display cache is fresh")
+    expect(!fresh.needsBackgroundRefresh(at: now, lastAttempt: now.addingTimeInterval(-60), hasPendingActions: true),
+           "Automatic retries of queued clicks must still respect the two-hour throttle")
     expect(fresh.needsBackgroundRefresh(at: now.addingTimeInterval(7200), lastAttempt: nil),
            "An old app snapshot must fetch changes even when the app was closed")
     let check = action(1, completed: true)

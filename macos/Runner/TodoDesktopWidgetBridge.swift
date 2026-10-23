@@ -2,10 +2,7 @@ import FlutterMacOS
 import WidgetKit
 final class TodoDesktopWidgetBridge {
   private static let channelName = "com.example.personaltodo/widget_actions"
-  private static let appGroupId = "V3KLD59MGY.com.example.personaltodo.shared"
-  private static let snapshotFileName = "todo_widget_snapshot.json"
   private static let actionsFileName = "todo_widget_actions.json"
-  private static let actionsDirectoryName = "todo_widget_actions"
   private static let widgetKinds = [
     "TodoDesktopTasksWidget",
     "TodoDesktopTodoOnlyWidget",
@@ -93,10 +90,8 @@ final class TodoDesktopWidgetBridge {
   }
 
   private static func saveSnapshot(_ snapshotJson: String) {
-    guard let containerUrl = FileManager.default.containerURL(
-      forSecurityApplicationGroupIdentifier: appGroupId
-    ) else {
-      NSLog("[TodoDesktopWidgetBridge] App Group container is unavailable: %@", appGroupId)
+    guard let snapshotUrl = TodoDesktopWidgetFiles.snapshotURL else {
+      NSLog("[TodoDesktopWidgetBridge] App Group container is unavailable")
       return
     }
 
@@ -105,13 +100,8 @@ final class TodoDesktopWidgetBridge {
       return
     }
 
-    let snapshotUrl = containerUrl.appendingPathComponent(
-      snapshotFileName,
-      isDirectory: false
-    )
-
     do {
-        try TodoDesktopWidgetFiles.save(snapshotData, to: snapshotUrl)
+      try TodoDesktopWidgetFiles.save(snapshotData, to: snapshotUrl)
     } catch {
       NSLog("[TodoDesktopWidgetBridge] failed to write snapshot: %@", error.localizedDescription)
     }
@@ -203,8 +193,7 @@ final class TodoDesktopWidgetBridge {
   }
 
   private static func actionsDirectory() -> URL? {
-    guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupId) else { return nil }
-    let directory = container.appendingPathComponent(actionsDirectoryName, isDirectory: true)
+    guard let directory = TodoDesktopWidgetFiles.actionsURL else { return nil }
     do {
       try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
       return directory

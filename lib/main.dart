@@ -269,6 +269,9 @@ class _PersonalTodoAppState extends State<PersonalTodoApp> {
     }
     switch (action) {
       case NativeWidgetBridge.openAppAction:
+        if (!_reconnectVisible) {
+          _navigatorKey.currentState?.popUntil((route) => route.isFirst);
+        }
         return;
       case NativeWidgetBridge.openTaskAction:
         final taskId = _intArgument(arguments, 'taskId');

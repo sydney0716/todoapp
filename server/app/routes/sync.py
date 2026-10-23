@@ -30,8 +30,10 @@ from ..schemas import (
     TaskChange,
     TaskRecord,
     Visibility,
+    WidgetActionsRequest,
+    WidgetActionsResponse,
 )
-from ..security import CurrentUser, require_user
+from ..security import CurrentUser, refresh_device_session, require_user
 
 router = APIRouter(prefix="/sync", tags=["sync"])
 _CURRENT_USER_DEPENDENCY = Depends(require_user)
@@ -112,6 +114,16 @@ def push_tasks(
     current_user: CurrentUser = _CURRENT_USER_DEPENDENCY,
     db: Session = _DB_DEPENDENCY,
 ) -> SyncPushResponse:
+    return _push_task_changes(payload, current_user, db, commit=True)
+
+
+def _push_task_changes(
+    payload: SyncPushRequest,
+    current_user: CurrentUser,
+    db: Session,
+    *,
+    commit: bool,
+) -> SyncPushResponse:
     if (
         current_user.device_id is not None
         and payload.device_id != current_user.device_id
@@ -123,6 +135,7 @@ def push_tasks(
 
     _lock_sync_writers(db)
     accepted: list[TaskRecord] = []
+    event_origin = None if payload.echo_to_origin else payload.device_id
     rejected: list[str] = []
     purged_ids: list[UUID] = []
 
@@ -154,7 +167,7 @@ def push_tasks(
                             visible_user_id=visible_user_id,
                             operation=change.operation,
                             record=record,
-                            origin_device_id=payload.device_id,
+                            origin_device_id=event_origin,
                             changed_task_fields=changed_task_fields,
                             changed_subtask_ids=changed_subtask_ids,
                         )
@@ -169,7 +182,7 @@ def push_tasks(
                                 visible_user_id=visible_user_id,
                                 operation=SyncOperation.purge,
                                 record=previous_record,
-                                origin_device_id=payload.device_id,
+                                origin_device_id=event_origin,
                                 changed_task_fields=[],
                                 changed_subtask_ids=[],
                             )
@@ -182,9 +195,11 @@ def push_tasks(
 
         accepted.append(record)
 
-    db.commit()
+    if commit:
+        db.commit()
     return SyncPushResponse(
         cursor=_current_cursor(db),
+        echoed_to_origin=payload.echo_to_origin,
         accepted=accepted,
         rejected=rejected,
         purged_ids=purged_ids,
@@ -193,6 +208,95 @@ def push_tasks(
 
 class TaskAlreadyPurged(ValueError):
     pass
+
+
+@router.post("/widget-actions", response_model=WidgetActionsResponse)
+def widget_actions(
+    payload: WidgetActionsRequest,
+    db: Session = _DB_DEPENDENCY,
+) -> WidgetActionsResponse:
+    # A background upload can outlive a short access token. Validate the same
+    # opaque device session as /auth/refresh; never accept an unauthenticated write.
+    current_user = refresh_device_session(
+        refresh_token=payload.refresh_token, device_id=payload.device_id, db=db
+    )
+    acknowledged: list[UUID] = []
+    for action in payload.actions:
+        _lock_sync_writers(db)
+        record = _existing_task_record(db, action.task_sync_id)
+        if record is None:
+            acknowledged.append(action.id)
+            continue
+        stored = db.get(Task, action.task_sync_id)
+        if not _task_visible_to_user(db, stored, current_user.user_id):
+            raise HTTPException(status_code=403, detail="Task is unavailable")
+        if record.deleted_at is not None:
+            acknowledged.append(action.id)
+            continue
+        fields = []
+        children = []
+        if action.subtask_sync_id is not None:
+            child = next(
+                (
+                    child
+                    for child in record.subtasks
+                    if child.id == action.subtask_sync_id
+                ),
+                None,
+            )
+            if child is None or child.deleted_at is not None:
+                acknowledged.append(action.id)
+                continue
+            if child.is_completed == action.is_completed:
+                acknowledged.append(action.id)
+                continue
+            children = [child.model_copy(update={"is_completed": action.is_completed})]
+        else:
+            both = (
+                record.visibility == Visibility.shared
+                and record.shared_completion_mode.value == "both"
+            )
+            completed_by = set(record.completed_by_user_ids) if both else set()
+            if action.is_completed and record.visibility == Visibility.shared:
+                completed_by.add(current_user.user_id)
+            else:
+                completed_by.discard(current_user.user_id)
+            record = record.model_copy(
+                update={
+                    "is_completed": action.is_completed,
+                    "completed_by_user_ids": sorted(completed_by),
+                }
+            )
+            fields = ["is_completed", "completed_by_user_ids"]
+        record = record.model_copy(
+            update={"device_id": payload.device_id, "subtasks": children}
+        )
+        result = _push_task_changes(
+            SyncPushRequest(
+                device_id=payload.device_id,
+                echo_to_origin=True,
+                changes=[
+                    TaskChange(
+                        operation=SyncOperation.upsert,
+                        record=record,
+                        changed_task_fields=fields,
+                        changed_subtask_ids=[child.id for child in children],
+                    )
+                ],
+            ),
+            current_user,
+            db,
+            commit=False,
+        )
+        if result.accepted or result.purged_ids:
+            acknowledged.append(action.id)
+    snapshot = bootstrap(current_user, db)
+    db.commit()
+    return WidgetActionsResponse(
+        **snapshot.model_dump(),
+        user_id=current_user.user_id,
+        acknowledged_action_ids=acknowledged,
+    )
 
 
 def _lock_sync_writers(db: Session) -> None:
@@ -251,7 +355,7 @@ def _add_sync_event(
     visible_user_id: UUID,
     operation: SyncOperation,
     record: TaskRecord,
-    origin_device_id: UUID,
+    origin_device_id: UUID | None,
     changed_task_fields: list[str],
     changed_subtask_ids: list[UUID],
 ) -> None:

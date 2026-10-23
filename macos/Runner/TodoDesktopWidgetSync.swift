@@ -1,7 +1,7 @@
 import Foundation
 
-// The extension only updates its display cache. The app's database and upload
-// queue remain owned by Flutter, including any edits made while offline.
+// The extension owns its display cache and durable checkbox actions. Flutter
+// still owns the app database and its separate queue of local edits.
 struct TodoDesktopWidgetSyncContext: Codable {
   struct LocalTask: Codable {
     let task: TodoDesktopWidgetTask
@@ -17,9 +17,11 @@ struct TodoDesktopWidgetSyncContext: Codable {
 }
 
 enum TodoDesktopWidgetFiles {
+  static let appGroupId = "V3KLD59MGY.com.example.personaltodo.shared"
+
   static var directory: URL? {
     FileManager.default.containerURL(
-      forSecurityApplicationGroupIdentifier: "V3KLD59MGY.com.example.personaltodo.shared"
+      forSecurityApplicationGroupIdentifier: appGroupId
     )
   }
 
@@ -31,6 +33,10 @@ enum TodoDesktopWidgetFiles {
     directory?.appendingPathComponent("todo_widget_snapshot.json")
   }
 
+  static var actionsURL: URL? {
+    directory?.appendingPathComponent("todo_widget_actions", isDirectory: true)
+  }
+
   static func save(_ data: Data, to url: URL) throws {
     // Credentials stay in the sandboxed App Group, never in a widget timeline.
     try data.write(to: url, options: [.atomic])
@@ -39,22 +45,14 @@ enum TodoDesktopWidgetFiles {
 }
 
 struct TodoDesktopWidgetSyncClient {
-  let session: URLSession
+  struct Result {
+    let snapshot: TodoDesktopWidgetSnapshot
+    let acknowledgedActionIds: Set<String>
 
-  init(session: URLSession? = nil) {
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.timeoutIntervalForRequest = 8
-    configuration.timeoutIntervalForResource = 20
-    self.session = session ?? URLSession(configuration: configuration)
-  }
-
-  private struct Auth: Decodable {
-    let accessToken: String
-    let userId: String
-  }
-
-  private struct Bootstrap: Decodable {
-    let tasks: [RemoteTask]
+    func acknowledged(from uploadedIds: Set<String>) -> Set<String> {
+      let canonical = Set(acknowledgedActionIds.map { $0.lowercased() })
+      return Set(uploadedIds.filter { canonical.contains($0.lowercased()) })
+    }
   }
 
   private struct RemoteSubTask: Decodable {
@@ -78,31 +76,21 @@ struct TodoDesktopWidgetSyncClient {
     let subtasks: [RemoteSubTask]
   }
 
-  func fetch(
-    context: TodoDesktopWidgetSyncContext,
-    previous: TodoDesktopWidgetSnapshot,
-    now: Date = Date()
-  ) async throws -> TodoDesktopWidgetSnapshot {
-    // Access tokens last less than the refresh interval. Renew directly using
-    // the existing device session; this does not rotate its refresh token.
-    let auth: Auth = try await request(
-      "/auth/refresh", context: context,
-      body: ["refresh_token": context.refreshToken, "device_id": context.deviceId]
-    )
-    let bootstrap: Bootstrap = try await request(
-      "/sync/bootstrap", context: context, accessToken: auth.accessToken
-    )
+  private func snapshot(
+    _ remoteTasks: [RemoteTask], userId: String,
+    context: TodoDesktopWidgetSyncContext, previous: TodoDesktopWidgetSnapshot, now: Date
+  ) throws -> TodoDesktopWidgetSnapshot {
     var locals: [String: TodoDesktopWidgetSyncContext.LocalTask] = [:]
     for local in context.localTasks { locals[local.task.id] = local }
     var tasks: [String: TodoDesktopWidgetTask] = [:]
-    for remote in bootstrap.tasks where !remote.isCompleted && remote.deletedAt == nil {
+    for remote in remoteTasks where !remote.isCompleted && remote.deletedAt == nil {
       let local = locals[remote.id]
       let both = remote.visibility == "shared" && remote.sharedCompletionMode == "both"
       tasks[remote.id] = TodoDesktopWidgetTask(
         id: remote.id, databaseId: local?.task.databaseId, title: remote.title,
         requiresBothSharedCompletion: both,
         isPartiallyCompleted: both && !remote.completedByUserIds.isEmpty,
-        isCompletedByCurrentUser: remote.completedByUserIds.contains(auth.userId),
+        isCompletedByCurrentUser: remote.completedByUserIds.contains(userId),
         dueAtMillis: try millis(remote.dueAt),
         subTasks: try remote.subtasks
           .filter { !$0.isCompleted && $0.deletedAt == nil }
@@ -141,17 +129,82 @@ struct TodoDesktopWidgetSyncClient {
       task.subTasks = Array(task.visibleSubTasks.prefix(2))
       return task
     }
-    return TodoDesktopWidgetSnapshot(
+    let snapshot = TodoDesktopWidgetSnapshot(
       updatedAtMillis: now.timeIntervalSince1970 * 1000,
       languageCode: previous.languageCode, themeMode: previous.themeMode,
       openTaskCount: sorted.count, calendarDueDates: dates.sorted(), tasks: visible
     )
+    return snapshot
   }
 
-  private func request<T: Decodable>(
-    _ path: String, context: TodoDesktopWidgetSyncContext,
-    accessToken: String? = nil, body: [String: String]? = nil
-  ) async throws -> T {
+  struct Upload {
+    let request: URLRequest
+    let body: Data
+    let actionIds: Set<String>
+  }
+
+  private struct ActionResponse: Decodable {
+    let userId: String
+    let tasks: [RemoteTask]
+    let acknowledgedActionIds: [String]
+  }
+
+  func upload(
+    context: TodoDesktopWidgetSyncContext, actions: [TodoDesktopWidgetAction]
+  ) throws -> Upload {
+    var changes: [[String: Any]] = []
+    var ids: Set<String> = []
+    for action in actions.sorted(by: { $0.createdAtMillis < $1.createdAtMillis }) {
+      guard ["set_task_completion", "complete_subtask"].contains(action.type) else { continue }
+      let local = context.localTasks.first { local in
+        if let id = action.taskSyncId { return local.task.id == id }
+        return local.task.databaseId == action.taskId
+      }
+      // Leave unsent app edits in its own durable queue. The app can consume
+      // these checkbox intents when manually opened, without losing either edit.
+      guard local?.isPending != true,
+            let taskId = action.taskSyncId ?? local?.task.id else { continue }
+      var change: [String: Any] = ["id": action.id, "task_sync_id": taskId]
+      if action.type == "complete_subtask" {
+        guard let childId = action.subTaskSyncId
+          ?? local?.subTaskDatabaseIds.first(where: { $0.value == action.subTaskId })?.key else { continue }
+        change["subtask_sync_id"] = childId
+        change["is_completed"] = true
+      } else {
+        guard let completed = action.isCompleted else { continue }
+        change["is_completed"] = completed
+      }
+      changes.append(change)
+      ids.insert(action.id)
+      if changes.count == 100 { break }
+    }
+    let body = try JSONSerialization.data(withJSONObject: [
+      "device_id": context.deviceId, "refresh_token": context.refreshToken, "actions": changes,
+    ])
+    var request = try urlRequest("/sync/widget-actions", context: context)
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    return Upload(request: request, body: body, actionIds: ids)
+  }
+
+  func uploaded(
+    _ data: Data, context: TodoDesktopWidgetSyncContext,
+    previous: TodoDesktopWidgetSnapshot, now: Date = Date()
+  ) throws -> Result {
+    let response: ActionResponse = try decode(data)
+    return Result(
+      snapshot: try snapshot(response.tasks, userId: response.userId, context: context, previous: previous, now: now),
+      acknowledgedActionIds: Set(response.acknowledgedActionIds)
+    )
+  }
+
+  private func decode<T: Decodable>(_ data: Data) throws -> T {
+    let decoder = JSONDecoder()
+    decoder.keyDecodingStrategy = .convertFromSnakeCase
+    return try decoder.decode(T.self, from: data)
+  }
+
+  private func urlRequest(_ path: String, context: TodoDesktopWidgetSyncContext) throws -> URLRequest {
     guard var components = URLComponents(string: context.apiBaseUrl),
           components.scheme == "https", components.host != nil,
           components.user == nil, components.password == nil else { throw URLError(.badURL) }
@@ -161,18 +214,7 @@ struct TodoDesktopWidgetSyncClient {
     guard let url = components.url else { throw URLError(.badURL) }
     var request = URLRequest(url: url)
     request.setValue("application/json", forHTTPHeaderField: "Accept")
-    if let accessToken { request.setValue("Bearer " + accessToken, forHTTPHeaderField: "Authorization") }
-    if let body {
-      request.httpMethod = "POST"
-      request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-      request.httpBody = try JSONEncoder().encode(body)
-    }
-    let (data, response) = try await session.data(for: request)
-    guard let response = response as? HTTPURLResponse,
-          (200..<300).contains(response.statusCode) else { throw URLError(.badServerResponse) }
-    let decoder = JSONDecoder()
-    decoder.keyDecodingStrategy = .convertFromSnakeCase
-    return try decoder.decode(T.self, from: data)
+    return request
   }
 
   private func millis(_ value: String?) throws -> Double? {

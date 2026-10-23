@@ -15,9 +15,9 @@ from ..security import (
     create_access_token,
     create_refresh_token,
     hash_token,
+    refresh_device_session,
     refresh_token_expires_at,
     require_user,
-    verify_token,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -92,38 +92,18 @@ def refresh(
     payload: RefreshRequest,
     db: Session = _DB_DEPENDENCY,
 ) -> AuthResponse:
-    device = db.get(Device, payload.device_id)
-    now = datetime.now(UTC)
-    if (
-        device is None
-        or device.refresh_token_expires_at <= now
-        or not verify_token(
-            payload.refresh_token,
-            device.refresh_token_hash,
-        )
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid refresh token",
-        )
-
-    user = db.get(User, device.user_id)
-    if user is None or not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid refresh token",
-        )
-
-    refresh_token = payload.refresh_token
-    device.refresh_token_expires_at = refresh_token_expires_at()
-    device.last_seen_at = now
+    current_user = refresh_device_session(
+        refresh_token=payload.refresh_token, device_id=payload.device_id, db=db
+    )
     db.commit()
 
     return AuthResponse(
-        access_token=create_access_token(user_id=user.id, device_id=device.id),
-        refresh_token=refresh_token,
-        user_id=user.id,
-        device_id=device.id,
+        access_token=create_access_token(
+            user_id=current_user.user_id, device_id=payload.device_id
+        ),
+        refresh_token=payload.refresh_token,
+        user_id=current_user.user_id,
+        device_id=payload.device_id,
     )
 
 

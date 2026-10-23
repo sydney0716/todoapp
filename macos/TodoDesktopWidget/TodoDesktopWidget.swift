@@ -2,8 +2,6 @@ import AppIntents
 import SwiftUI
 import WidgetKit
 
-private let appGroupId = "V3KLD59MGY.com.example.personaltodo.shared"
-private let snapshotFileName = "todo_widget_snapshot.json"
 private let widgetModeDefaultsKey = "todo_widget_mode"
 private let toggleWidgetKind = "TodoDesktopTasksWidget"
 private let todoOnlyWidgetKind = "TodoDesktopTodoOnlyWidget"
@@ -96,14 +94,13 @@ struct TodoDesktopWidgetProvider: TimelineProvider {
     completion: @escaping (Timeline<TodoDesktopWidgetEntry>) -> Void
   ) {
     let now = Date()
-    let snapshot = TodoDesktopWidgetStore.load()
     let nextRefresh = now.addingTimeInterval(TodoDesktopWidgetSnapshot.refreshInterval)
 
-    Task { @MainActor in
-      if !context.isPreview {
-        await TodoDesktopWidgetStore.refreshInBackgroundIfNeeded(snapshot, at: now)
-      }
-      completion(Timeline(entries: [entry(date: now, snapshot: TodoDesktopWidgetStore.load())], policy: .after(nextRefresh)))
+    // Render the cached snapshot and durable checkbox intents first. All
+    // network work belongs to NSURLSession, never this timeline completion.
+    completion(Timeline(entries: [entry(date: now, snapshot: TodoDesktopWidgetStore.load())], policy: .after(nextRefresh)))
+    if !context.isPreview {
+      Task { @MainActor in TodoDesktopWidgetActionStore.scheduleSync() }
     }
   }
 
@@ -142,38 +139,6 @@ struct ToggleWidgetModeIntent: AppIntent {
 }
 
 private enum TodoDesktopWidgetStore {
-  @MainActor
-  static func refreshInBackgroundIfNeeded(
-    _ snapshot: TodoDesktopWidgetSnapshot, at now: Date
-  ) async {
-    guard let defaults = UserDefaults(suiteName: appGroupId),
-          let contextURL = TodoDesktopWidgetFiles.contextURL,
-          let snapshotURL = TodoDesktopWidgetFiles.snapshotURL,
-          let contextData = try? Data(contentsOf: contextURL),
-          let context = try? JSONDecoder().decode(TodoDesktopWidgetSyncContext.self, from: contextData)
-    else { return }
-    let key = "todo_widget_last_background_refresh"
-    let lastAttempt = defaults.object(forKey: key) as? Date
-    guard snapshot.needsBackgroundRefresh(at: now, lastAttempt: lastAttempt) else { return }
-    // All widget variants share the throttle, including when the server is offline.
-    defaults.set(now, forKey: key)
-    defaults.synchronize()
-    let previousData = try? Data(contentsOf: snapshotURL)
-    do {
-      let updated = try await TodoDesktopWidgetSyncClient().fetch(
-        context: context, previous: snapshot, now: now
-      )
-      // The app may edit a task, sign out or switch sessions during the request.
-      guard (try? Data(contentsOf: contextURL)) == contextData,
-            (try? Data(contentsOf: snapshotURL)) == previousData else { return }
-      try TodoDesktopWidgetFiles.save(try JSONEncoder().encode(updated), to: snapshotURL)
-      WidgetCenter.shared.reloadAllTimelines()
-    } catch {
-      // Keep the last good display offline or after session expiry. Never launch
-      // the app from a scheduled refresh; signing in happens when opened manually.
-    }
-  }
-
   static func load() -> TodoDesktopWidgetSnapshot {
     let pending = TodoDesktopWidgetActionStore.pendingActions()
     return (loadFromFile() ?? .empty).applying(pending)
@@ -181,7 +146,7 @@ private enum TodoDesktopWidgetStore {
 
   static func loadMode() -> TodoDesktopWidgetMode {
     guard
-      let rawValue = UserDefaults(suiteName: appGroupId)?
+      let rawValue = UserDefaults(suiteName: TodoDesktopWidgetFiles.appGroupId)?
         .string(forKey: widgetModeDefaultsKey),
       let mode = TodoDesktopWidgetMode(rawValue: rawValue)
     else {
@@ -192,7 +157,7 @@ private enum TodoDesktopWidgetStore {
   }
 
   static func setMode(_ mode: TodoDesktopWidgetMode) {
-    guard let defaults = UserDefaults(suiteName: appGroupId) else {
+    guard let defaults = UserDefaults(suiteName: TodoDesktopWidgetFiles.appGroupId) else {
       return
     }
 
@@ -201,18 +166,8 @@ private enum TodoDesktopWidgetStore {
   }
 
   private static func loadFromFile() -> TodoDesktopWidgetSnapshot? {
-    guard let containerUrl = FileManager.default.containerURL(
-      forSecurityApplicationGroupIdentifier: appGroupId
-    ) else {
-      return nil
-    }
-
-    let snapshotUrl = containerUrl.appendingPathComponent(
-      snapshotFileName,
-      isDirectory: false
-    )
-
-    guard let data = try? Data(contentsOf: snapshotUrl) else {
+    guard let snapshotUrl = TodoDesktopWidgetFiles.snapshotURL,
+          let data = try? Data(contentsOf: snapshotUrl) else {
       return nil
     }
 
@@ -934,6 +889,9 @@ struct TodoDesktopToggleWidget: Widget {
     .description("Switches between your open tasks and calendar.")
     .supportedFamilies([.systemLarge])
     .containerBackgroundRemovable(false)
+    .onBackgroundURLSessionEvents(matching: TodoDesktopWidgetUpload.identifier) { identifier, completion in
+      TodoDesktopWidgetUpload.handleEvents(identifier, completion: completion)
+    }
   }
 }
 
@@ -951,6 +909,9 @@ struct TodoDesktopTodoOnlyWidget: Widget {
     .description("Shows your open tasks on the desktop.")
     .supportedFamilies([.systemLarge])
     .containerBackgroundRemovable(false)
+    .onBackgroundURLSessionEvents(matching: TodoDesktopWidgetUpload.identifier) { identifier, completion in
+      TodoDesktopWidgetUpload.handleEvents(identifier, completion: completion)
+    }
   }
 }
 
@@ -968,6 +929,9 @@ struct TodoDesktopCalendarOnlyWidget: Widget {
     .description("Shows your task calendar on the desktop.")
     .supportedFamilies([.systemLarge])
     .containerBackgroundRemovable(false)
+    .onBackgroundURLSessionEvents(matching: TodoDesktopWidgetUpload.identifier) { identifier, completion in
+      TodoDesktopWidgetUpload.handleEvents(identifier, completion: completion)
+    }
   }
 }
 

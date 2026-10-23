@@ -44,10 +44,13 @@ struct TodoDesktopWidgetSnapshot: Codable {
   let calendarDueDates: [Double]?
   var tasks: [TodoDesktopWidgetTask]
 
-  func needsBackgroundRefresh(at now: Date, lastAttempt: Date?) -> Bool {
+  func needsBackgroundRefresh(
+    at now: Date, lastAttempt: Date?, hasPendingActions: Bool = false
+  ) -> Bool {
     if let lastAttempt, now.timeIntervalSince(lastAttempt) < Self.refreshInterval {
       return false
     }
+    if hasPendingActions { return true }
     guard let updatedAtMillis else { return true }
     return now.timeIntervalSince1970 - updatedAtMillis / 1000 >= Self.refreshInterval
   }

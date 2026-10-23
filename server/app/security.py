@@ -59,6 +59,31 @@ def verify_token(token: str, token_hash: str) -> bool:
     return verify_secret(token, token_hash)
 
 
+def refresh_device_session(
+    *, refresh_token: str, device_id: UUID, db: Session
+) -> CurrentUser:
+    device = db.get(Device, device_id)
+    now = datetime.now(UTC)
+    if (
+        device is None
+        or device.refresh_token_expires_at <= now
+        or not verify_token(refresh_token, device.refresh_token_hash)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token",
+        )
+    user = db.get(User, device.user_id)
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token",
+        )
+    device.refresh_token_expires_at = refresh_token_expires_at()
+    device.last_seen_at = now
+    return CurrentUser(user_id=user.id, device_id=device.id)
+
+
 def require_user(
     credentials: HTTPAuthorizationCredentials | None = _BEARER_DEPENDENCY,
     db: Session = _DB_DEPENDENCY,

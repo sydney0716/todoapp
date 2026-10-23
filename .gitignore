@@ -2,6 +2,7 @@
 .flutter-plugins
 .flutter-plugins-dependencies
 .packages
+/packages/task_reminders/pubspec.lock
 build/
 /web/sqlite3.wasm
 /web/sqflite_sw.js

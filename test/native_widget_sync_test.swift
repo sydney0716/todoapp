@@ -1,30 +1,10 @@
 import Foundation
 
-private final class WidgetSyncProtocol: URLProtocol {
-  static var handler: ((URLRequest) throws -> (Int, Data))!
-  override class func canInit(with request: URLRequest) -> Bool { true }
-  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-  override func startLoading() {
-    do {
-      let (status, data) = try Self.handler(request)
-      let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil,
-                                     headerFields: ["Content-Type": "application/json"])!
-      client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-      client?.urlProtocol(self, didLoad: data)
-      client?.urlProtocolDidFinishLoading(self)
-    } catch { client?.urlProtocol(self, didFailWithError: error) }
-  }
-  override func stopLoading() {}
-}
-
 @main
 struct NativeWidgetSyncTest {
-  static func main() async throws {
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [WidgetSyncProtocol.self]
-    let session = URLSession(configuration: configuration)
-    defer { session.invalidateAndCancel() }
-    let client = TodoDesktopWidgetSyncClient(session: session)
+  static func main() throws {
+    try fileChecks()
+    let client = TodoDesktopWidgetSyncClient()
     let previous = TodoDesktopWidgetSnapshot(
       updatedAtMillis: 1, languageCode: "ko", themeMode: "DARK", openTaskCount: 0,
       calendarDueDates: [], tasks: []
@@ -51,22 +31,15 @@ struct NativeWidgetSyncTest {
         local("removed", title: "Purged on server", pending: false),
       ]
     )
-    var requests: [String] = []
-    WidgetSyncProtocol.handler = { request in
-      requests.append(request.url!.path)
-      if request.url!.path == "/api/auth/refresh" {
-        expect(request.httpMethod == "POST", "Renew the existing device session")
-        return (200, try JSONSerialization.data(withJSONObject: ["access_token": "fixture-access", "user_id": me]))
-      }
-      expect(request.url!.path == "/api/sync/bootstrap" && request.httpMethod == "GET",
-             "Refresh must only read tasks, never push changes or launch the app")
-      expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer fixture-access",
-             "Task reads must use the renewed access token")
-      return (200, try JSONSerialization.data(withJSONObject: ["cursor": "12", "tasks": remote]))
+    func project(_ records: [[String: Any]]) throws -> TodoDesktopWidgetSnapshot {
+      let data = try JSONSerialization.data(withJSONObject: [
+        "user_id": me, "tasks": records, "acknowledged_action_ids": [],
+      ])
+      return try client.uploaded(data, context: context, previous: previous,
+        now: Date(timeIntervalSince1970: 10_000)).snapshot
     }
     let now = Date(timeIntervalSince1970: 10_000)
-    let snapshot = try await client.fetch(context: context, previous: previous, now: now)
-    expect(requests == ["/api/auth/refresh", "/api/sync/bootstrap"], "Two bounded requests per refresh")
+    let snapshot = try project(remote)
     expect(snapshot.openTaskCount == 5, "Hide server deletions and preserve pending local creations")
     expect(snapshot.tasks.first { $0.id == "existing" }?.title == "Updated elsewhere", "Show remote edits")
     expect(snapshot.tasks.first { $0.id == "edited" }?.title == "My offline edit", "Keep unsent local edits")
@@ -87,20 +60,84 @@ struct NativeWidgetSyncTest {
            "Preserve preferences and timestamp successful fetches")
 
     remote = (1...12).map { record("many-\($0)", title: String(format: "%02d", $0)) }
-    let many = try await client.fetch(context: context, previous: previous)
+    let many = try project(remote)
     expect(many.openTaskCount == 14 && many.tasks.count == 8, "Bound the display while counting all open tasks")
 
-    WidgetSyncProtocol.handler = { _ in throw URLError(.notConnectedToInternet) }
-    do {
-      _ = try await client.fetch(context: context, previous: snapshot)
-      fatalError("Offline refresh should fail so the provider keeps its saved snapshot")
-    } catch is URLError {}
-    WidgetSyncProtocol.handler = { _ in (401, Data()) }
-    do {
-      _ = try await client.fetch(context: context, previous: snapshot)
-      fatalError("Expired sessions must not replace the cache with an empty widget")
-    } catch is URLError {}
+    try completionChecks(client: client, previous: snapshot)
+
     print("Native widget direct-sync checks passed")
+  }
+
+  static func completionChecks(client: TodoDesktopWidgetSyncClient, previous: TodoDesktopWidgetSnapshot) throws {
+    let taskId = "20000000-0000-4000-8000-000000000001"
+    let childId = "30000000-0000-4000-8000-000000000001"
+    let deviceId = "10000000-0000-4000-8000-000000000001"
+    let firstId = "40000000-0000-4000-8000-000000000001"
+    let secondId = "40000000-0000-4000-8000-000000000002"
+    let childActionId = "40000000-0000-4000-8000-000000000003"
+    let me = "00000000-0000-4000-8000-000000000001"
+    let context = TodoDesktopWidgetSyncContext(
+      apiBaseUrl: "https://widget.example.test", refreshToken: "fixture-refresh", deviceId: deviceId,
+      localTasks: [local(taskId, title: "Task", pending: false, databaseId: 11, children: [childId: 21])]
+    )
+    let actions: [TodoDesktopWidgetAction] = [
+      .init(id: firstId, type: "set_task_completion", taskId: 11, subTaskId: nil,
+            isCompleted: true, createdAtMillis: 1, taskSyncId: taskId),
+      .init(id: childActionId, type: "complete_subtask", taskId: 11, subTaskId: 21,
+            isCompleted: nil, createdAtMillis: 3, taskSyncId: taskId, subTaskSyncId: childId),
+      .init(id: secondId, type: "set_task_completion", taskId: 11, subTaskId: nil,
+            isCompleted: false, createdAtMillis: 2, taskSyncId: taskId),
+    ]
+    let upload = try client.upload(context: context, actions: actions)
+    expect(upload.request.url!.path == "/sync/widget-actions" && upload.request.httpMethod == "POST",
+           "Use a single system-managed background upload")
+    expect(upload.request.httpBody == nil, "Background upload body must be handed to URLSession as a durable file")
+    let body = try JSONSerialization.jsonObject(with: upload.body) as! [String: Any]
+    expect(body["device_id"] as? String == deviceId && body["refresh_token"] as? String == "fixture-refresh",
+           "Authenticate the existing device session without waiting for an access-token renewal")
+    let changes = body["actions"] as! [[String: Any]]
+    expect(changes.map { $0["id"] as! String } == [firstId, secondId, childActionId],
+           "Preserve click order when checking and unchecking rapidly")
+    expect(changes[1]["is_completed"] as? Bool == false && changes[2]["subtask_sync_id"] as? String == childId,
+           "Preserve desired state and child identity")
+    expect(upload.actionIds == [firstId, secondId, childActionId], "Only acknowledge IDs actually uploaded")
+    let pendingContext = TodoDesktopWidgetSyncContext(
+      apiBaseUrl: context.apiBaseUrl, refreshToken: context.refreshToken, deviceId: context.deviceId,
+      localTasks: [local(taskId, title: "Unsent local edit", pending: true, databaseId: 11)]
+    )
+    let deferred = try client.upload(context: pendingContext, actions: actions)
+    let deferredBody = try JSONSerialization.jsonObject(with: deferred.body) as! [String: Any]
+    expect((deferredBody["actions"] as! [[String: Any]]).isEmpty && deferred.actionIds.isEmpty,
+           "Leave unsent database edits and their checkbox intent for the app's durable queue")
+    let refresh = try client.upload(context: context, actions: [])
+    let refreshBody = try JSONSerialization.jsonObject(with: refresh.body) as! [String: Any]
+    expect((refreshBody["actions"] as! [[String: Any]]).isEmpty && refresh.actionIds.isEmpty,
+           "Periodic refresh uses the same background transport without blocking a timeline")
+    var completed = record(taskId, title: "Task")
+    completed["is_completed"] = true
+    let response = try JSONSerialization.data(withJSONObject: [
+      "user_id": me, "tasks": [completed], "acknowledged_action_ids": [firstId],
+    ])
+    let result = try client.uploaded(response, context: context, previous: previous)
+    expect(result.snapshot.tasks.isEmpty && result.acknowledgedActionIds == [firstId],
+           "A confirmed response removes the task before its optimistic action is deleted")
+    let upper = "ABCDEF00-0000-4000-8000-000000000001"
+    let canonical = TodoDesktopWidgetSyncClient.Result(snapshot: result.snapshot,
+      acknowledgedActionIds: [upper.lowercased(), "another-id"])
+    expect(canonical.acknowledged(from: [upper, "not-uploaded"]) == [upper],
+           "Server UUID normalization must still remove the original uppercase intent filename")
+    var both = record(taskId, title: "Shared", both: true, users: [me])
+    both["is_completed"] = false
+    let halfResponse = try JSONSerialization.data(withJSONObject: [
+      "user_id": me, "tasks": [both], "acknowledged_action_ids": [firstId],
+    ])
+    let half = try client.uploaded(halfResponse, context: context, previous: previous)
+    expect(half.snapshot.tasks.count == 1 && half.snapshot.tasks[0].isPartiallyDone
+           && half.snapshot.tasks[0].isDoneByCurrentUser, "Keep Both tasks visible until the partner completes them")
+    do {
+      _ = try client.uploaded(Data("{}".utf8), context: context, previous: previous)
+      fatalError("An invalid response cannot acknowledge a pending checkbox")
+    } catch is DecodingError {}
   }
 
   static func record(_ id: String, title: String, both: Bool = false,
@@ -110,6 +147,21 @@ struct NativeWidgetSyncTest {
       "completed_by_user_ids": users, "subtasks": []]
     if deleted { record["deleted_at"] = "2026-10-21T00:00:00Z" }
     return record
+  }
+
+  static func fileChecks() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let file = directory.appendingPathComponent("snapshot.json")
+    let first = Data("{\"tasks\":[]}".utf8)
+    try TodoDesktopWidgetFiles.save(first, to: file)
+    expect(try Data(contentsOf: file) == first, "Shared widget files must round-trip exactly")
+    let second = Data("{\"tasks\":[{\"id\":\"test\"}]}".utf8)
+    try TodoDesktopWidgetFiles.save(second, to: file)
+    expect(try Data(contentsOf: file) == second, "Atomic replacement must expose the complete new snapshot")
+    let permissions = try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as! NSNumber
+    expect(permissions.intValue == 0o600, "Private widget files must remain readable only by their owner")
   }
 
   static func local(_ id: String, title: String, pending: Bool, hidden: Bool = false,

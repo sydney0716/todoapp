@@ -40,6 +40,7 @@
 		A927C644851836F9C1DE3432 /* Pods_Runner.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0C7F01DB90AF14332186CFD2 /* Pods_Runner.framework */; };
 		A20000000000000000000002 /* TodoDesktopWidgetSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* TodoDesktopWidgetSync.swift */; };
 		A20000000000000000000003 /* TodoDesktopWidgetSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* TodoDesktopWidgetSync.swift */; };
+		B20000000000000000000002 /* TaskNotificationBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20000000000000000000001 /* TaskNotificationBridge.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -127,6 +128,7 @@
 		A10000000000000000000018 /* TodoDesktopWidgetIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoDesktopWidgetIntents.swift; sourceTree = "<group>"; };
 		A1000000000000000000001B /* TodoDesktopWidgetState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoDesktopWidgetState.swift; sourceTree = "<group>"; };
 		A20000000000000000000001 /* TodoDesktopWidgetSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodoDesktopWidgetSync.swift; sourceTree = "<group>"; };
+		B20000000000000000000001 /* TaskNotificationBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = TaskNotificationBridge.swift; path = ../apple/TaskNotificationBridge.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -226,6 +228,7 @@
 			isa = PBXGroup;
 			children = (
 				33CC10F02044A3C60003C045 /* AppDelegate.swift */,
+				B20000000000000000000001 /* TaskNotificationBridge.swift */,
 				33CC11122044BFA00003C045 /* MainFlutterWindow.swift */,
 				A10000000000000000000001 /* TodoDesktopWidgetBridge.swift */,
 				A10000000000000000000018 /* TodoDesktopWidgetIntents.swift */,
@@ -553,6 +556,7 @@
 			files = (
 				33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */,
 				33CC10F12044A3C60003C045 /* AppDelegate.swift in Sources */,
+				B20000000000000000000002 /* TaskNotificationBridge.swift in Sources */,
 				335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */,
 				A10000000000000000000002 /* TodoDesktopWidgetBridge.swift in Sources */,
 				A10000000000000000000019 /* TodoDesktopWidgetIntents.swift in Sources */,

@@ -108,11 +108,30 @@ class SyncPullResponse(BaseModel):
 
 class SyncPushRequest(BaseModel):
     device_id: UUID
+    # Widget extensions share the app's session but cannot update its local DB.
+    echo_to_origin: bool = False
     changes: list[TaskChange] = Field(default_factory=list)
 
 
 class SyncPushResponse(BaseModel):
     cursor: str
+    echoed_to_origin: bool = False
     accepted: list[TaskRecord] = Field(default_factory=list)
     rejected: list[str] = Field(default_factory=list)
     purged_ids: list[UUID] = Field(default_factory=list)
+
+
+class WidgetAction(BaseModel):
+    id: UUID
+    task_sync_id: UUID
+    subtask_sync_id: UUID | None = None
+    is_completed: bool
+
+
+class WidgetActionsRequest(RefreshRequest):
+    actions: list[WidgetAction] = Field(default_factory=list, max_length=100)
+
+
+class WidgetActionsResponse(SyncBootstrapResponse):
+    user_id: UUID
+    acknowledged_action_ids: list[UUID]
